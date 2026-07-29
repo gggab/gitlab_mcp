@@ -32,6 +32,7 @@ This project is a local STDIO MCP server that lets Codex inspect and control dep
 
 - Runtime: Node.js 20.
 - Entry point: `src/server.mjs`.
+- Installer: run `install.ps1 -Workspace <path>` to install dependencies, store the user-scoped token, update the workspace MCP config, and verify the server.
 - Smoke test: `tests/smoke.mjs`.
 - Package manager: Yarn; `yarn.lock` is the lockfile.
 - Install: `yarn install --frozen-lockfile`
