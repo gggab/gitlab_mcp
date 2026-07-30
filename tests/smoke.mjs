@@ -23,11 +23,11 @@ try {
       "list_group_projects",
       "list_pipelines",
       "list_pipeline_jobs",
-      "play_deploy_to_26_env",
+      "play_deploy_to_jv26_env",
     ],
   );
   assert.equal(
-    tools.find(({ name }) => name === "play_deploy_to_26_env").annotations
+    tools.find(({ name }) => name === "play_deploy_to_jv26_env").annotations
       .readOnlyHint,
     false,
   );
@@ -59,10 +59,13 @@ try {
       arguments: { project_path: portalPath, pipeline_id: pipeline.id },
     });
     const jobs = JSON.parse(jobResult.content[0].text);
-    deployJob = jobs.find(({ name }) => name === "deploy to 26 env");
+    deployJob = jobs.find(({ name }) => name === "deploy to jv 26 env");
     if (deployJob) break;
   }
-  assert.ok(deployJob, "No deploy to 26 env job found in recent release pipelines");
+  assert.ok(
+    deployJob,
+    "No deploy to jv 26 env job found in recent release pipelines",
+  );
 
   console.log(
     `ok: ${tools.length} tools, projects/pipelines/jobs read verified`,

@@ -52,6 +52,12 @@ example = true
     if (-not $config.Contains('default_tools_approval_mode = "writes"')) {
         throw "Write approval mode is missing"
     }
+    if (-not $config.Contains('"play_deploy_to_jv26_env"')) {
+        throw "jv26 deployment tool is missing"
+    }
+    if ($config.Contains('"play_deploy_to_26_env"')) {
+        throw "Old 26 deployment tool is still enabled"
+    }
     if ([regex]::Matches($config, "(?m)^\[mcp_servers\.standard_smart_office_gitlab\]$").Count -ne 1) {
         throw "Managed MCP configuration is not idempotent"
     }

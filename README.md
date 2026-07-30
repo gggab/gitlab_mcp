@@ -1,6 +1,6 @@
 # Standard Smart Office GitLab MCP
 
-这是一个运行在本机的 GitLab MCP 服务，让 Codex 能够查询 Standard Smart Office 项目的流水线，并在用户明确确认后触发 26 环境部署。
+这是一个运行在本机的 GitLab MCP 服务，让 Codex 能够查询 Standard Smart Office 项目的流水线，并在用户明确确认后触发 jv26 环境部署。
 
 ## 功能
 
@@ -9,14 +9,14 @@
 | `list_group_projects` | 列出 `ksa/standard-smart-office` 组及子组中的项目 |
 | `list_pipelines` | 查看指定项目最近的流水线 |
 | `list_pipeline_jobs` | 查看流水线中的任务及部署任务状态 |
-| `play_deploy_to_26_env` | 触发手动任务 `deploy to 26 env` |
+| `play_deploy_to_jv26_env` | 触发手动任务 `deploy to jv 26 env` |
 
 ## 安全边界
 
 - 只能访问 `ksa/standard-smart-office` 组及其子组。
-- 只能触发名称完全匹配 `deploy to 26 env` 的手动任务。
+- 只能触发名称完全匹配 `deploy to jv 26 env` 的手动任务。
 - 部署前必须核对项目、流水线、分支和提交 SHA。
-- 部署时必须提供用户确认过的 SHA，以及确认文本 `DEPLOY TO 26 ENV`。
+- 部署时必须提供用户确认过的 SHA，以及确认文本 `DEPLOY TO JV 26 ENV`。
 - GitLab Token 只通过环境变量传入，不应写入代码、配置文件或提交记录。
 
 ## 环境要求

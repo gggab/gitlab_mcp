@@ -8,3 +8,10 @@
 - `src/server.mjs`: GitLab MCP server.
 - `tests/install.test.ps1`: installer configuration test.
 - `tests/smoke.mjs`: MCP smoke test.
+
+## Deployment Contract
+
+- Target environment: `jv26`.
+- Exact GitLab manual job: `deploy to jv 26 env`.
+- Write tool: `play_deploy_to_jv26_env`.
+- Required confirmation: `DEPLOY TO JV 26 ENV`.

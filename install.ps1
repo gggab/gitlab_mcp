@@ -39,7 +39,7 @@ enabled_tools = [
   "list_group_projects",
   "list_pipelines",
   "list_pipeline_jobs",
-  "play_deploy_to_26_env",
+  "play_deploy_to_jv26_env",
 ]
 default_tools_approval_mode = "writes"
 startup_timeout_sec = 10

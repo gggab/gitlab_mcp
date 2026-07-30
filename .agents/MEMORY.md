@@ -8,7 +8,8 @@ This project is a local STDIO MCP server that lets Codex inspect and control dep
 
 - GitLab API: `https://gitlab.sz.sensetime.com/api/v4`
 - Allowed group: `ksa/standard-smart-office`, including its subgroups
-- Allowed deployment job: exact manual job `deploy to 26 env`
+- Deployment target: `jv26`
+- Allowed deployment job: exact manual job `deploy to jv 26 env`
 - Access token environment variable: `GitLabAccessToken`
 - Never commit, print, log, or share the token.
 
@@ -17,13 +18,13 @@ This project is a local STDIO MCP server that lets Codex inspect and control dep
 - `list_group_projects`: list projects in the allowed group.
 - `list_pipelines`: list recent pipelines for an allowed project.
 - `list_pipeline_jobs`: inspect jobs in a selected pipeline.
-- `play_deploy_to_26_env`: run only the exact manual deployment job.
+- `play_deploy_to_jv26_env`: run only the exact manual deployment job.
 
 ## Deployment Safety Contract
 
 - Read the project, pipeline, jobs, ref, and commit SHA before deploying.
 - Never hardcode a GitLab job ID; job IDs change for every pipeline.
-- Deployment requires the selected pipeline ID, the user-approved commit SHA, and the exact confirmation `DEPLOY TO 26 ENV`.
+- Deployment requires the selected pipeline ID, the user-approved commit SHA, and the exact confirmation `DEPLOY TO JV 26 ENV`.
 - Reject deployment when the SHA differs, the job is absent, or the job is not in `manual` status.
 - Codex must prompt before write tools by using `default_tools_approval_mode = "writes"`.
 - No deployment was executed while implementing or testing this MCP.

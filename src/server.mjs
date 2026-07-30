@@ -5,7 +5,7 @@ import { z } from "zod";
 
 const API_URL = "https://gitlab.sz.sensetime.com/api/v4";
 const GROUP_PATH = "ksa/standard-smart-office";
-const DEPLOY_JOB_NAME = "deploy to 26 env";
+const DEPLOY_JOB_NAME = "deploy to jv 26 env";
 const TOKEN_ENV = "GitLabAccessToken";
 const PROJECT_PATH_PATTERN =
   /^ksa\/standard-smart-office(?:\/[a-zA-Z0-9_.-]+)+$/;
@@ -239,9 +239,9 @@ export function createServer() {
   );
 
   server.registerTool(
-    "play_deploy_to_26_env",
+    "play_deploy_to_jv26_env",
     {
-      title: "Deploy a pipeline to environment 26",
+      title: "Deploy a pipeline to environment jv26",
       description:
         `Play only the exact manual GitLab job "${DEPLOY_JOB_NAME}". ` +
         "Call only after showing the project, ref, pipeline ID and SHA to the user and receiving approval.",
@@ -255,8 +255,8 @@ export function createServer() {
           .regex(/^[0-9a-f]{8,40}$/)
           .describe("User-approved full or abbreviated pipeline commit SHA"),
         confirmation: z
-          .literal("DEPLOY TO 26 ENV")
-          .describe('Exact confirmation text: "DEPLOY TO 26 ENV"'),
+          .literal("DEPLOY TO JV 26 ENV")
+          .describe('Exact confirmation text: "DEPLOY TO JV 26 ENV"'),
       },
       annotations: writesDeployment,
     },
