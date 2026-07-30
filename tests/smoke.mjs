@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { MCP_PATH, startHttpServer } from "../src/server.mjs";
 
 function config(name) {
   const value = process.env[name]?.trim();
@@ -11,15 +12,11 @@ function config(name) {
 const projectPath = config("GitLabSmokeProjectPath");
 const deployJobName = config("GitLabSmokeDeployJobName");
 const pipelineRef = process.env.GitLabSmokeRef?.trim();
-const transport = new StdioClientTransport({
-  command: process.execPath,
-  args: ["../src/server.mjs"],
-  cwd: import.meta.dirname,
-  env: {
-    ...process.env,
-    GitLabAccessToken: process.env.GitLabAccessToken,
-  },
-});
+config("GitLabAccessToken");
+const { httpServer, host, port } = await startHttpServer({ port: 0 });
+const transport = new StreamableHTTPClientTransport(
+  new URL(`http://${host}:${port}${MCP_PATH}`),
+);
 const client = new Client({ name: "gitlab-mcp-smoke", version: "1.0.0" });
 
 try {
@@ -100,4 +97,5 @@ try {
   );
 } finally {
   await client.close();
+  httpServer.close();
 }

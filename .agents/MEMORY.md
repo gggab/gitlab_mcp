@@ -2,15 +2,15 @@
 
 ## Purpose
 
-This project is a local STDIO MCP server that lets Codex inspect and control deployment workflows in the company GitLab.
+This project is a local Streamable HTTP MCP server that lets Codex inspect and control deployment workflows in the company GitLab.
 
 ## Conversation Scope
 
 - GitLab API: `https://gitlab.sz.sensetime.com/api/v4`
 - Project access requires a process-local scope token created after user confirmation.
 - Each scope contains exact project paths.
-- New conversations without a token must configure their own scope; a conversation can configure again to change selection.
-- Access token environment variable: `GitLabAccessToken`
+- New sessions without a token must configure their own scope; a session can configure again to change selection.
+- Access token environment variable: `GitLabAccessToken` (read by the MCP server process).
 - Never commit, print, log, or share the token.
 
 ## MCP Tools
@@ -33,12 +33,14 @@ This project is a local STDIO MCP server that lets Codex inspect and control dep
 ## Local Setup and Verification
 
 - Runtime: Node.js 20.
-- Entry point: `src/server.mjs`.
-- Windows installer: run parameterless `install.ps1` to install dependencies, store the user-scoped token, update `~/.codex/config.toml`, and verify the server.
+- Entry point: `src/server.mjs`, serving MCP Streamable HTTP on `/mcp` (default `http://127.0.0.1:8932/mcp`; override with `GitLabMcpHost` / `GitLabMcpPort`).
+- `startHttpServer({ host, port })` is exported for in-process tests; one MCP session per client, each session gets its own server instance.
+- Windows installer: run parameterless `install.ps1` to install dependencies, store the user-scoped token, update `~/.codex/config.toml` with the URL-based MCP section, and verify the server.
 - The MCP is user-global and available to all new Codex conversations; project directories are not part of installation.
-- macOS setup is manual: install with Yarn, expose `GitLabAccessToken` to the Codex process, and add the MCP section to `~/.codex/config.toml`.
+- The server must be running (`yarn start`) before Codex connects; Codex does not start it in HTTP mode.
+- macOS setup is manual: install with Yarn, expose `GitLabAccessToken` to the server process, and add the URL-based MCP section to `~/.codex/config.toml`.
 - Remove legacy project-local MCP sections after global installation so they cannot override the user configuration.
-- Configuration test: `tests/config.test.mjs`.
+- Configuration test: `tests/config.test.mjs` (starts the HTTP server in-process on an ephemeral port).
 - Optional live smoke test: `tests/smoke.mjs`.
 - Package manager: Yarn; `yarn.lock` is the lockfile.
 - Install: `yarn install --frozen-lockfile`
@@ -52,8 +54,8 @@ This project is a local STDIO MCP server that lets Codex inspect and control dep
 
 The user-level registration must:
 
-- point `args` and `cwd` to this project directory;
-- forward `GitLabAccessToken` with `env_vars`;
+- point `url` at the running server, default `http://127.0.0.1:8932/mcp`;
+- keep the token out of Codex configuration (the server reads `GitLabAccessToken` itself);
 - set `default_tools_approval_mode = "writes"`.
 
 Restart Codex after changing MCP configuration or moving the server.
@@ -63,8 +65,8 @@ Restart Codex after changing MCP configuration or moving the server.
 - Publish the source to a private company GitLab repository.
 - Do not publish `node_modules` or any access token.
 - Each colleague must use their own GitLab token so permissions and audit records remain attributable to that user.
-- Teammates run `yarn install --frozen-lockfile`, `yarn test`, configure the absolute server path in Codex, and restart Codex.
-- Consider a centrally hosted HTTP MCP with company SSO only if local installation becomes a measurable maintenance burden.
+- Teammates run `yarn install --frozen-lockfile`, `yarn test`, point the Codex MCP `url` at their running server, start the server, and restart Codex.
+- A centrally hosted instance needs company SSO in front of `/mcp`; per-user tokens remain mandatory so audit records stay attributable.
 
 ## Maintenance Rules
 

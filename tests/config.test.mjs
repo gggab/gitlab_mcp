@@ -1,16 +1,14 @@
 import assert from "node:assert/strict";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
-import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import { MCP_PATH, startHttpServer } from "../src/server.mjs";
 
-const transport = new StdioClientTransport({
-  command: process.execPath,
-  args: ["../src/server.mjs"],
-  cwd: import.meta.dirname,
-  env: {
-    ...process.env,
-    GitLabAccessToken: "not-used",
-  },
-});
+process.env.GitLabAccessToken = "not-used";
+
+const { httpServer, host, port } = await startHttpServer({ port: 0 });
+const transport = new StreamableHTTPClientTransport(
+  new URL(`http://${host}:${port}${MCP_PATH}`),
+);
 const client = new Client({ name: "gitlab-mcp-config", version: "1.0.0" });
 
 try {
@@ -86,7 +84,8 @@ try {
   });
   assert.equal(oldProjectRejected.isError, true);
 
-  console.log("ok: conversation project scope verified");
+  console.log("ok: conversation project scope verified over streamable HTTP");
 } finally {
   await client.close();
+  httpServer.close();
 }

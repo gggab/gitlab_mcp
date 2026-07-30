@@ -8,6 +8,7 @@ $script:ProjectRoot = $PSScriptRoot
 $script:ServerName = "gitlab_deployment"
 $script:LegacyServerName = "standard_smart_office_gitlab"
 $script:TokenName = "GitLabAccessToken"
+$script:McpUrl = "http://127.0.0.1:8932/mcp"
 
 function Set-McpConfig {
     [CmdletBinding()]
@@ -23,14 +24,9 @@ function Set-McpConfig {
     $configPath = Join-Path $configDirectory "config.toml"
     New-Item -ItemType Directory -Path $configDirectory -Force | Out-Null
 
-    $serverPath = $serverPath.Replace("\", "/")
-    $projectRoot = $script:ProjectRoot.Replace("\", "/")
     $block = @"
 [mcp_servers.$($script:ServerName)]
-command = "node"
-args = ["$serverPath"]
-cwd = "$projectRoot"
-env_vars = ["$($script:TokenName)"]
+url = "$($script:McpUrl)"
 enabled_tools = [
   "configure_project_scope",
   "list_group_projects",
@@ -39,7 +35,6 @@ enabled_tools = [
   "play_deploy_job",
 ]
 default_tools_approval_mode = "writes"
-startup_timeout_sec = 10
 tool_timeout_sec = 60
 enabled = true
 "@.Trim()
@@ -126,7 +121,7 @@ function Invoke-Installer {
     }
 
     Set-McpConfig
-    Write-Output "Installation complete. Restart Codex."
+    Write-Output "Installation complete. Start the MCP server with 'yarn start', then restart Codex."
 }
 
 if ($MyInvocation.InvocationName -ne ".") {

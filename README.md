@@ -1,6 +1,6 @@
 # GitLab Deployment MCP
 
-这是一个供 Codex 使用的本地 GitLab MCP 服务。安装一次后，当前用户的所有新 Codex 会话都可以使用它，不绑定任何项目目录。
+这是一个供 Codex 使用的本地 GitLab MCP 服务，通过 Streamable HTTP 提供（默认 `http://127.0.0.1:8932/mcp`）。安装一次后，当前用户的所有新 Codex 会话都可以使用它，不绑定任何项目目录。
 
 它可以查询 GitLab 项目、pipeline 和 job，并在用户单独确认后触发手动部署任务。
 
@@ -42,7 +42,17 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
 4. 创建或更新 `C:\Users\<当前用户>\.codex\config.toml`；
 5. 保留该配置文件中的其他设置。
 
-### 3. 重启 Codex
+### 3. 启动 MCP 服务
+
+HTTP 模式下 Codex 不会自动启动服务，需要先运行：
+
+```powershell
+yarn start
+```
+
+服务默认监听 `http://127.0.0.1:8932/mcp`，可用环境变量 `GitLabMcpHost` 和 `GitLabMcpPort` 修改。修改端口后要同步更新 `~/.codex/config.toml` 中的 `url`。Token 由服务进程读取，请从能看到 `GitLabAccessToken` 用户环境变量的新终端中启动。
+
+### 4. 重启 Codex
 
 完全退出并重新打开 Codex。已经运行的 Codex 进程看不到新设置的环境变量或 MCP 配置，因此只新建一个任务还不够。
 
@@ -65,7 +75,7 @@ command -v node
 
 记下 `command -v node` 输出的绝对路径，例如 `/opt/homebrew/bin/node`。
 
-### 2. 把 Token 提供给 Codex
+### 2. 把 Token 提供给 MCP 服务
 
 macOS 默认的 zsh 可以隐藏输入 Token，并把它提供给当前登录会话中之后启动的应用：
 
@@ -75,7 +85,7 @@ launchctl setenv GitLabAccessToken "$GITLAB_TOKEN"
 unset GITLAB_TOKEN
 ```
 
-Token 不会写入 Codex 配置。注销或重启 macOS 后，需要重新执行这一步。
+Token 由 MCP 服务进程读取，不会写入 Codex 配置。注销或重启 macOS 后，需要重新执行这一步。
 
 ### 3. 创建全局 Codex 配置
 
@@ -83,10 +93,7 @@ Token 不会写入 Codex 配置。注销或重启 macOS 后，需要重新执行
 
 ```toml
 [mcp_servers.gitlab_deployment]
-command = "/opt/homebrew/bin/node"
-args = ["/Users/me/Tools/GitLabMCP/src/server.mjs"]
-cwd = "/Users/me/Tools/GitLabMCP"
-env_vars = ["GitLabAccessToken"]
+url = "http://127.0.0.1:8932/mcp"
 enabled_tools = [
   "configure_project_scope",
   "list_group_projects",
@@ -95,20 +102,20 @@ enabled_tools = [
   "play_deploy_job",
 ]
 default_tools_approval_mode = "writes"
-startup_timeout_sec = 10
 tool_timeout_sec = 60
 enabled = true
 ```
 
-需要替换三个路径：
+### 4. 启动 MCP 服务并重启 Codex
 
-- `command`：使用 `command -v node` 的输出；
-- `args`：指向 GitLabMCP 的 `src/server.mjs`；
-- `cwd`：填写 GitLabMCP 目录。
+先启动服务：
 
-### 4. 重启 Codex
+```bash
+cd "/Users/me/Tools/GitLabMCP"
+yarn start
+```
 
-完全退出并重新打开 Codex。之后所有新会话都可以使用 GitLab MCP。
+服务默认监听 `http://127.0.0.1:8932/mcp`，可用 `GitLabMcpHost` 和 `GitLabMcpPort` 修改，修改端口后要同步更新配置中的 `url`。然后完全退出并重新打开 Codex，之后所有新会话都可以使用 GitLab MCP。
 
 ## 从旧版本迁移
 
@@ -118,7 +125,7 @@ enabled = true
 
 ## 第一次使用
 
-不需要手动运行 `yarn start`。配置完成后，Codex 会在需要时自动启动 MCP。
+先确认 MCP 服务正在运行（`yarn start`），Codex 通过配置中的 `url` 连接它。
 
 可以按下面的顺序对 Codex 说：
 

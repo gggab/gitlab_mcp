@@ -27,6 +27,9 @@
 
 ## Platform Setup
 
-- Windows uses parameterless `install.ps1` and writes the MCP section to the current user's `~/.codex/config.toml`.
-- macOS installs dependencies with Yarn, forwards `GitLabAccessToken` from the user launch environment, and adds the same MCP section to `~/.codex/config.toml`.
+- The server speaks MCP Streamable HTTP on `/mcp`; defaults: host `127.0.0.1`, port `8932`, overridable with `GitLabMcpHost` and `GitLabMcpPort`.
+- `GitLabAccessToken` is read by the MCP server process, not by Codex.
+- Windows uses parameterless `install.ps1` and writes a URL-based MCP section to the current user's `~/.codex/config.toml`.
+- macOS installs dependencies with Yarn, exposes `GitLabAccessToken` to the server process, and adds the same URL-based MCP section to `~/.codex/config.toml`.
+- The server must be running (`yarn start`) before Codex connects; Codex does not start it.
 - Previous project-local MCP sections should be removed after global installation so they cannot override the user configuration.

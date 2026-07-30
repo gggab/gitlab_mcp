@@ -1,11 +1,18 @@
 import { randomUUID } from "node:crypto";
+import { createServer as createHttpServer } from "node:http";
 import { pathToFileURL } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
+import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 
 const API_URL = "https://gitlab.sz.sensetime.com/api/v4";
 const TOKEN_ENV = "GitLabAccessToken";
+export const MCP_PATH = "/mcp";
+export const DEFAULT_HOST = "127.0.0.1";
+export const DEFAULT_PORT = 8932;
+const HOST_ENV = "GitLabMcpHost";
+const PORT_ENV = "GitLabMcpPort";
 const GITLAB_PATH_PATTERN =
   /^[a-zA-Z0-9_.-]+(?:\/[a-zA-Z0-9_.-]+)*$/;
 // ponytail: process-local scopes last until restart; add expiry only if long-lived servers accumulate them.
@@ -401,9 +408,101 @@ export function createServer() {
   return server;
 }
 
+function readJsonBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    req.on("data", (chunk) => chunks.push(chunk));
+    req.on("error", reject);
+    req.on("end", () => {
+      try {
+        resolve(chunks.length ? JSON.parse(Buffer.concat(chunks).toString("utf8")) : null);
+      } catch (error) {
+        reject(new Error("Request body is not valid JSON"));
+      }
+    });
+  });
+}
+
+function writeJsonRpcError(res, status, message) {
+  if (!res.headersSent) {
+    res.writeHead(status, { "content-type": "application/json" });
+  }
+  res.end(
+    JSON.stringify({
+      jsonrpc: "2.0",
+      error: { code: -32000, message },
+      id: null,
+    }),
+  );
+}
+
+export function startHttpServer({ host, port } = {}) {
+  const listenHost = host ?? process.env[HOST_ENV] ?? DEFAULT_HOST;
+  const listenPort = port ?? Number(process.env[PORT_ENV] ?? DEFAULT_PORT);
+  const transports = new Map();
+
+  const httpServer = createHttpServer((req, res) => {
+    handleRequest(req, res).catch((error) => {
+      console.error(error);
+      writeJsonRpcError(res, 500, "Internal server error");
+    });
+  });
+
+  async function handleRequest(req, res) {
+    const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+    if (url.pathname !== MCP_PATH) {
+      writeJsonRpcError(res, 404, `Unknown path: ${url.pathname}`);
+      return;
+    }
+
+    const sessionId = req.headers["mcp-session-id"];
+    const transport =
+      typeof sessionId === "string" ? transports.get(sessionId) : undefined;
+
+    if (transport) {
+      await transport.handleRequest(req, res);
+      return;
+    }
+
+    if (sessionId !== undefined || req.method !== "POST") {
+      writeJsonRpcError(res, 400, "Unknown or missing MCP session");
+      return;
+    }
+
+    const body = await readJsonBody(req);
+    if (!isInitializeRequest(body)) {
+      writeJsonRpcError(res, 400, "First request must be an MCP initialize request");
+      return;
+    }
+
+    const newTransport = new StreamableHTTPServerTransport({
+      sessionIdGenerator: () => randomUUID(),
+      onsessioninitialized: (id) => {
+        transports.set(id, newTransport);
+      },
+    });
+    newTransport.onclose = () => {
+      if (newTransport.sessionId) {
+        transports.delete(newTransport.sessionId);
+      }
+    };
+    await createServer().connect(newTransport);
+    await newTransport.handleRequest(req, res, body);
+  }
+
+  return new Promise((resolve, reject) => {
+    httpServer.once("error", reject);
+    httpServer.listen(listenPort, listenHost, () => {
+      httpServer.off("error", reject);
+      const address = httpServer.address();
+      resolve({ httpServer, host: listenHost, port: address.port });
+    });
+  });
+}
+
 export async function main() {
-  const server = createServer();
-  await server.connect(new StdioServerTransport());
+  const { host, port } = await startHttpServer();
+  console.log(`GitLab deployment MCP listening on http://${host}:${port}${MCP_PATH}`);
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {

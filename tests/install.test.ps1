@@ -31,7 +31,6 @@ example = true
     Set-McpConfig -ConfigDirectory $configDirectory
 
     $config = [IO.File]::ReadAllText($configPath)
-    $serverPath = (Resolve-Path (Join-Path $PSScriptRoot "..\src\server.mjs")).Path.Replace("\", "/")
 
     if (-not $config.Contains('model = "test-model"')) {
         throw "Existing root configuration was removed"
@@ -42,11 +41,11 @@ example = true
     if (-not $config.Contains("[features]")) {
         throw "Configuration after the managed MCP section was removed"
     }
-    if (-not $config.Contains("args = [`"$serverPath`"]")) {
-        throw "MCP server path was not updated"
+    if (-not $config.Contains('url = "http://127.0.0.1:8932/mcp"')) {
+        throw "Streamable HTTP MCP URL is missing"
     }
-    if (-not $config.Contains('env_vars = ["GitLabAccessToken"]')) {
-        throw "GitLabAccessToken forwarding is missing"
+    if ($config.Contains("command = `"node`"") -or $config.Contains("env_vars")) {
+        throw "Legacy stdio configuration is still present"
     }
     if ($config.Contains("GitLabGroupPath") -or $config.Contains("GitLabDeployJobName")) {
         throw "Repository scope is still fixed in global configuration"
