@@ -4,7 +4,7 @@
 
 ## Structure
 
-- `install.ps1`: install and configure the MCP for a Codex workspace.
+- `install.ps1`: install and configure the MCP for a Codex workspace on Windows.
 - `src/server.mjs`: GitLab MCP server.
 - `tests/config.test.mjs`: runtime configuration test.
 - `tests/install.test.ps1`: installer configuration test.
@@ -24,3 +24,9 @@
 
 - `yarn test`: installer and runtime configuration tests; no GitLab access.
 - `yarn test:live`: read-only GitLab smoke test using `GitLabSmokeProjectPath`, `GitLabSmokeDeployJobName`, and optional `GitLabSmokeRef`.
+
+## Platform Setup
+
+- A workspace is the project directory where Codex should load this MCP; it is not the GitLabMCP source directory or a GitLab group.
+- Windows uses `install.ps1 -Workspace <path>`.
+- macOS installs dependencies with Yarn, forwards `GitLabAccessToken` from the user launch environment, and adds the MCP section to `<workspace>/.codex/config.toml`.
