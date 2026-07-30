@@ -4,125 +4,25 @@
 
 它可以查询 GitLab 项目、pipeline 和 job，并在用户单独确认后触发手动部署任务。
 
-## 准备工作
+## 接入团队已部署的服务（同事）
 
-安装前需要：
-
-- Node.js 20 或更高版本；
-- Yarn 1.x；
-- 能访问公司 GitLab 的账号；
-- 一个具有所需读取和部署权限的 GitLab Access Token；
-- 已下载或克隆到本机的 GitLabMCP 项目。
-
-Token 不要写入代码、README 或 `config.toml`。
-
-## Windows 安装
-
-### 1. 打开 GitLabMCP 目录
-
-在 PowerShell 中进入本项目目录：
+如果运维已把 MCP 部署到内网服务器，**不需要克隆本仓库，也不需要 Node/Yarn**。创建好个人 GitLab Token（勾选 `api` scope）后，运行一行命令（URL 以运维通知为准）：
 
 ```powershell
-cd "C:\Tools\GitLabMCP"
+# Windows（PowerShell）
+irm https://mcp.internal.company.com/join.ps1 | iex
 ```
-
-### 2. 运行安装程序
-
-安装命令不需要参数：
-
-```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
-```
-
-安装程序会：
-
-1. 检查 Node.js 和 Yarn；
-2. 安装依赖并运行测试；
-3. 在需要时隐藏输入 GitLab Token，并保存到当前 Windows 用户环境变量；
-4. 创建或更新 `C:\Users\<当前用户>\.codex\config.toml`；
-5. 保留该配置文件中的其他设置。
-
-### 3. 启动 MCP 服务
-
-HTTP 模式下 Codex 不会自动启动服务，需要先运行：
-
-```powershell
-yarn start
-```
-
-服务默认监听 `http://127.0.0.1:8932/mcp`，可用环境变量 `GitLabMcpHost` 和 `GitLabMcpPort` 修改。修改端口后要同步更新 `~/.codex/config.toml` 中的 `url`。服务本身不再读取 Token：Codex 通过 `bearer_token_env_var = "GitLabAccessToken"` 把你本机环境变量中的 Token 作为 `Authorization: Bearer` 头发给服务。
-
-### 4. 重启 Codex
-
-完全退出并重新打开 Codex。已经运行的 Codex 进程看不到新设置的环境变量或 MCP 配置，因此只新建一个任务还不够。
-
-重启后，不论打开哪个项目，新会话都可以使用 GitLab MCP。
-
-## macOS 安装
-
-`install.ps1` 是 Windows 安装程序。macOS 手动完成一次全局配置即可。
-
-以下示例假设 GitLabMCP 位于 `/Users/me/Tools/GitLabMCP`。
-
-### 1. 安装依赖并验证
 
 ```bash
-cd "/Users/me/Tools/GitLabMCP"
-yarn install --frozen-lockfile
-yarn test
-command -v node
+# macOS（终端）
+curl -fsSL https://mcp.internal.company.com/join.sh | bash
 ```
 
-记下 `command -v node` 输出的绝对路径，例如 `/opt/homebrew/bin/node`。
+脚本会隐藏输入 Token 并安全保存（Windows 存为用户环境变量；macOS 存入登录钥匙串，并在 `~/.zshrc` 追加一行从钥匙串取值的 `export`）、更新用户级 `~/.codex/config.toml`（保留其他配置，可重复运行）。完成后 macOS 同事需新开一个终端，然后完全退出并重新打开 Codex（Codex 需从终端启动）。详见 [docs/deployment.md](docs/deployment.md) 的“同事接入”一节。
 
-### 2. 把 Token 提供给 Codex
+## 在自己电脑上运行 MCP 服务
 
-macOS 默认的 zsh 可以隐藏输入 Token，并把它提供给当前登录会话中之后启动的应用：
-
-```zsh
-read -s "GITLAB_TOKEN?GitLab Access Token: "
-launchctl setenv GitLabAccessToken "$GITLAB_TOKEN"
-unset GITLAB_TOKEN
-```
-
-Token 不会写入 Codex 配置：Codex 通过 `bearer_token_env_var` 读取该环境变量，并在每个请求中以 `Authorization: Bearer` 头转发给 MCP 服务。注销或重启 macOS 后，需要重新执行这一步。
-
-### 3. 创建全局 Codex 配置
-
-创建或编辑当前用户的 `~/.codex/config.toml`。如果文件已经存在，只添加下面这一段，不要覆盖原有配置：
-
-```toml
-[mcp_servers.gitlab_deployment]
-url = "http://127.0.0.1:8932/mcp"
-bearer_token_env_var = "GitLabAccessToken"
-enabled_tools = [
-  "configure_project_scope",
-  "list_group_projects",
-  "list_pipelines",
-  "list_pipeline_jobs",
-  "play_deploy_job",
-]
-default_tools_approval_mode = "writes"
-tool_timeout_sec = 60
-enabled = true
-```
-
-### 4. 启动 MCP 服务并重启 Codex
-
-先启动服务：
-
-```bash
-cd "/Users/me/Tools/GitLabMCP"
-yarn start
-```
-
-服务默认监听 `http://127.0.0.1:8932/mcp`，可用 `GitLabMcpHost` 和 `GitLabMcpPort` 修改，修改端口后要同步更新配置中的 `url`。然后完全退出并重新打开 Codex，之后所有新会话都可以使用 GitLab MCP。
-
-## 从旧版本迁移
-
-如果以前使用过带 `-Workspace` 参数的安装方式，旧项目的 `.codex/config.toml` 中可能仍有 `[mcp_servers.gitlab_deployment]` 或 `[mcp_servers.standard_smart_office_gitlab]`。
-
-完成全局安装后，可以从旧项目配置中删除这些 MCP 段，避免项目级旧配置覆盖用户级新配置。不要删除该文件中的其他设置。
+开发者或运维本机部署（Windows 安装程序 / macOS 手动配置 / 启动与重启）见 [docs/self-hosting.md](docs/self-hosting.md)。接入团队服务时不需要。
 
 ## 第一次使用
 
@@ -184,10 +84,14 @@ yarn test:live
 ## 项目结构
 
 ```text
-install.ps1             Windows 全局安装程序
+install.ps1             Windows 全局安装程序（本机运行服务）
+join.ps1                Windows 同事一行接入已部署服务
+join.sh                 macOS 同事一行接入已部署服务（Keychain 存储 Token）
 src/server.mjs          MCP 服务
 tests/config.test.mjs   MCP 配置测试
 tests/install.test.ps1  Windows 安装程序测试
+tests/join.test.ps1     Windows 一行接入脚本测试
+tests/join.test.sh      macOS 一行接入脚本测试（可注入 Keychain stub）
 tests/smoke.mjs         GitLab 只读冒烟测试
 docs/                   项目维护文档
 ```

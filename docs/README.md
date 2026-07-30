@@ -5,14 +5,19 @@
 ## Structure
 
 - `install.ps1`: install and configure the MCP globally for the current Windows user.
+- `join.ps1`: one-line onboarding to a centrally hosted MCP for Windows colleagues (no repo clone, no Node/Yarn).
+- `join.sh`: one-line onboarding to a centrally hosted MCP for macOS colleagues (Keychain token storage, no repo clone, no Node/Yarn).
 - `src/server.mjs`: GitLab MCP server.
 - `tests/config.test.mjs`: runtime configuration test.
 - `tests/install.test.ps1`: installer configuration test.
+- `tests/join.test.ps1`: one-line onboarding script test (Windows).
+- `tests/join.test.sh`: one-line onboarding script test (macOS, injectable Keychain stub).
 - `tests/smoke.mjs`: optional read-only GitLab smoke test.
 
 ## Guides
 
 - [内网部署手册](deployment.md): intranet hosting with systemd, nginx, and per-user bearer tokens.
+- [本机运行 MCP 服务](self-hosting.md): run the MCP server on your own machine (Windows installer, macOS manual setup, start and restart).
 
 ## Deployment Contract
 
@@ -38,3 +43,7 @@
 - macOS installs dependencies with Yarn, exposes `GitLabAccessToken` to the Codex process, and adds the same URL-based MCP section to `~/.codex/config.toml`.
 - The server must be running (`yarn start`) before Codex connects; Codex does not start it.
 - Previous project-local MCP sections should be removed after global installation so they cannot override the user configuration.
+- Colleagues joining a centrally hosted MCP run the hosted `join.ps1` one-liner on Windows (`irm <trusted-url>/join.ps1 | iex`): it stores the per-user token as a user environment variable via hidden input and writes the full URL-based MCP section (URL, `enabled_tools`, `default_tools_approval_mode = "writes"`, `tool_timeout_sec`) into `~/.codex/config.toml`. `codex mcp add --url --bearer-token-env-var` was evaluated and rejected because it writes only `url` and `bearer_token_env_var`, dropping the security-contract fields.
+- macOS colleagues run the hosted `join.sh` one-liner (`curl -fsSL <trusted-url>/join.sh | bash`): it stores the per-user token in the login keychain via hidden input (encrypted at rest, reboot-persistent, never plaintext in any file), appends an idempotent keychain-lookup export line to `~/.zshrc` so new shells expose `GitLabAccessToken` to Codex, and writes the same MCP section. The prompt reads from `/dev/tty` so `curl | bash` piping does not break input. `security add-generic-password -w` accepts the value only as an argument, so the token appears briefly in the process argument list during the write; storage itself is encrypted.
+- The default MCP URL in `join.ps1` and `join.sh` is the placeholder `https://mcp.internal.company.com/mcp`; each script refuses to run until the deployer replaces it, and the deployer serves the rendered copies through nginx as single static files (`location = /join.ps1`, `location = /join.sh`).
+- GUI-launched Codex on macOS (Dock/Spotlight) does not read `~/.zshrc`; colleagues must start Codex from a terminal so it inherits the environment.

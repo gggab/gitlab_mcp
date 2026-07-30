@@ -71,6 +71,19 @@ Restart Codex after changing MCP configuration or moving the server.
 - Teammates run `yarn install --frozen-lockfile`, `yarn test`, point the Codex MCP `url` at their running server, start the server, and restart Codex.
 - A centrally hosted instance needs company SSO in front of `/mcp`; per-user tokens remain mandatory so audit records stay attributable.
 
+## Colleague Onboarding (centrally hosted MCP)
+
+- `join.ps1` is the one-line Windows onboarding: `irm <trusted-https-url>/join.ps1 | iex`. No repo clone, no Node/Yarn, no manual `config.toml` edit.
+- It hidden-prompts the personal token, persists it as the user environment variable `GitLabAccessToken`, and writes the full MCP section (`url`, `bearer_token_env_var`, `enabled_tools`, `default_tools_approval_mode = "writes"`, `tool_timeout_sec = 60`) into user-level `~/.codex/config.toml`, preserving other settings and staying idempotent.
+- `join.sh` is the equivalent one-line macOS onboarding: `curl -fsSL <trusted-https-url>/join.sh | bash`. It stores the token in the login keychain (`security add-generic-password -U -s GitLabAccessToken`, encrypted at rest, reboot-persistent, never plaintext in any file) and appends one idempotent export line marked `# gitlab-mcp-join` to `~/.zshrc` that resolves the token from the keychain when a new shell starts. Codex must be started from a terminal to inherit it; GUI-launched Codex does not read `~/.zshrc`.
+- `join.sh` design notes: the hidden prompt reads from `/dev/tty` because `curl | bash` occupies stdin with the script itself; `security add-generic-password -w` accepts the value only as an argument, so the token appears briefly in the process argument list during the write (same class as any CLI credential flag; storage stays encrypted); if `GitLabAccessToken` already exists only in the environment (e.g. an earlier `launchctl setenv`), the script migrates it into the keychain; the script runs its `onboard` entry only when executed, not when sourced by tests.
+- Test seams in `join.sh`: `JOIN_MCP_URL`, `JOIN_CONFIG_DIR`, `JOIN_SHELL_PROFILE`, `JOIN_SECURITY` (injectable keychain stub). `tests/join.test.sh` stubs `security` with a file-backed fake and never touches the real keychain, profile, or `~/.codex`.
+- `codex mcp add <name> --url ... --bearer-token-env-var ...` was evaluated and rejected: verified locally (CODEX_HOME sandbox) that it writes only `url` and `bearer_token_env_var`, so it cannot keep the security-contract fields. The scripts write the config section directly instead.
+- The default URL in `join.ps1` and `join.sh` is the placeholder `https://mcp.internal.company.com/mcp`; each script refuses to run until the deployer replaces it. Never present the placeholder as a real production domain.
+- The deployer renders hosted copies with the real URL (sed replace) and serves them through nginx as single static files (`location = /join.ps1`, `location = /join.sh`, `default_type text/plain`); do not add a Node endpoint to serve the scripts.
+- Both join scripts are pure ASCII on purpose: they are fetched through `irm | iex` / `curl | bash`, and non-ASCII content can be mis-decoded by Windows PowerShell 5.1.
+- `tests/join.test.ps1` covers new/existing config, unrelated-config preservation, legacy and outdated section replacement, idempotency, remote URL, security fields, and token hygiene; it never touches the real user environment or `~/.codex` (config directory and token scope are injectable). `tests/join.test.sh` mirrors that coverage for macOS plus keychain storage idempotency, profile-line idempotency/legacy plaintext removal, environment-token migration, and end-to-end onboarding.
+
 ## Maintenance Rules
 
 - Keep the server small and use the GitLab REST API directly.
