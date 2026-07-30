@@ -1,26 +1,8 @@
 # GitLab Deployment MCP
 
-这是一个供 Codex 使用的本地 GitLab MCP 服务。它可以查询项目、pipeline 和 job，并在用户单独确认后触发手动部署任务。
+这是一个供 Codex 使用的本地 GitLab MCP 服务。安装一次后，当前用户的所有新 Codex 会话都可以使用它，不绑定任何项目目录。
 
-## 先理解两个目录
-
-安装时会同时涉及两个不同的目录：
-
-| 名称 | 含义 | 示例 |
-| --- | --- | --- |
-| GitLabMCP 目录 | 本项目下载或克隆到本机后的目录，里面有 `src/server.mjs` | `C:\Tools\GitLabMCP` |
-| Codex Workspace | 你平时在 Codex 中打开、并希望使用此 MCP 的项目目录 | `C:\Work\MyProduct` |
-
-`Workspace` 不是 GitLab 组，也不是准备部署的 GitLab 仓库。安装程序只会在该目录下创建或更新 `.codex/config.toml`，让 Codex 在处理这个目录中的任务时能够加载 GitLab MCP。
-
-例如，你把本项目放在 `C:\Tools\GitLabMCP`，平时在 Codex 中打开 `C:\Work\StandardSmartOffice`，那么：
-
-- GitLabMCP 目录是 `C:\Tools\GitLabMCP`；
-- Workspace 是 `C:\Work\StandardSmartOffice`；
-- 安装命令要在 `C:\Tools\GitLabMCP` 中运行；
-- `-Workspace` 要填写 `C:\Work\StandardSmartOffice`。
-
-如果希望在多个 Workspace 中使用，需要分别为每个 Workspace 配置一次。
+它可以查询 GitLab 项目、pipeline 和 job，并在用户单独确认后触发手动部署任务。
 
 ## 准备工作
 
@@ -32,7 +14,7 @@
 - 一个具有所需读取和部署权限的 GitLab Access Token；
 - 已下载或克隆到本机的 GitLabMCP 项目。
 
-Token 不要写入代码、README 或 `.codex/config.toml`。
+Token 不要写入代码、README 或 `config.toml`。
 
 ## Windows 安装
 
@@ -46,11 +28,10 @@ cd "C:\Tools\GitLabMCP"
 
 ### 2. 运行安装程序
 
-把 `-Workspace` 换成你实际在 Codex 中使用的项目目录：
+安装命令不需要参数：
 
 ```powershell
-powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 `
-  -Workspace "C:\Work\StandardSmartOffice"
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1
 ```
 
 安装程序会：
@@ -58,21 +39,20 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\install.ps1 `
 1. 检查 Node.js 和 Yarn；
 2. 安装依赖并运行测试；
 3. 在需要时隐藏输入 GitLab Token，并保存到当前 Windows 用户环境变量；
-4. 创建或更新 `C:\Work\StandardSmartOffice\.codex\config.toml`；
+4. 创建或更新 `C:\Users\<当前用户>\.codex\config.toml`；
 5. 保留该配置文件中的其他设置。
 
 ### 3. 重启 Codex
 
-完全退出并重新打开 Codex，然后打开刚才配置的 Workspace。已经运行的 Codex 进程看不到新设置的环境变量，因此只关闭当前任务不够。
+完全退出并重新打开 Codex。已经运行的 Codex 进程看不到新设置的环境变量或 MCP 配置，因此只新建一个任务还不够。
+
+重启后，不论打开哪个项目，新会话都可以使用 GitLab MCP。
 
 ## macOS 安装
 
-`install.ps1` 是 Windows 安装程序。macOS 不需要运行它，可以手动完成相同配置。
+`install.ps1` 是 Windows 安装程序。macOS 手动完成一次全局配置即可。
 
-以下示例假设：
-
-- GitLabMCP 目录：`/Users/me/Tools/GitLabMCP`
-- Codex Workspace：`/Users/me/Work/MyProduct`
+以下示例假设 GitLabMCP 位于 `/Users/me/Tools/GitLabMCP`。
 
 ### 1. 安装依赖并验证
 
@@ -83,7 +63,7 @@ yarn test
 command -v node
 ```
 
-记下 `command -v node` 输出的绝对路径，例如 `/opt/homebrew/bin/node`。后面的配置需要使用它，避免 Codex 桌面应用找不到 Node.js。
+记下 `command -v node` 输出的绝对路径，例如 `/opt/homebrew/bin/node`。
 
 ### 2. 把 Token 提供给 Codex
 
@@ -95,11 +75,11 @@ launchctl setenv GitLabAccessToken "$GITLAB_TOKEN"
 unset GITLAB_TOKEN
 ```
 
-Token 不会写入 Workspace 配置。注销或重启 macOS 后，需要重新执行这一步。
+Token 不会写入 Codex 配置。注销或重启 macOS 后，需要重新执行这一步。
 
-### 3. 创建 Workspace 配置
+### 3. 创建全局 Codex 配置
 
-在 `/Users/me/Work/MyProduct` 下创建 `.codex/config.toml`。如果该文件已经存在，只添加下面这一段，不要覆盖原有配置：
+创建或编辑当前用户的 `~/.codex/config.toml`。如果文件已经存在，只添加下面这一段，不要覆盖原有配置：
 
 ```toml
 [mcp_servers.gitlab_deployment]
@@ -128,7 +108,13 @@ enabled = true
 
 ### 4. 重启 Codex
 
-完全退出并重新打开 Codex，再打开 `/Users/me/Work/MyProduct`。
+完全退出并重新打开 Codex。之后所有新会话都可以使用 GitLab MCP。
+
+## 从旧版本迁移
+
+如果以前使用过带 `-Workspace` 参数的安装方式，旧项目的 `.codex/config.toml` 中可能仍有 `[mcp_servers.gitlab_deployment]` 或 `[mcp_servers.standard_smart_office_gitlab]`。
+
+完成全局安装后，可以从旧项目配置中删除这些 MCP 段，避免项目级旧配置覆盖用户级新配置。不要删除该文件中的其他设置。
 
 ## 第一次使用
 
@@ -190,7 +176,7 @@ yarn test:live
 ## 项目结构
 
 ```text
-install.ps1             Windows 安装程序
+install.ps1             Windows 全局安装程序
 src/server.mjs          MCP 服务
 tests/config.test.mjs   MCP 配置测试
 tests/install.test.ps1  Windows 安装程序测试

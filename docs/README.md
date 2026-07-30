@@ -4,7 +4,7 @@
 
 ## Structure
 
-- `install.ps1`: install and configure the MCP for a Codex workspace on Windows.
+- `install.ps1`: install and configure the MCP globally for the current Windows user.
 - `src/server.mjs`: GitLab MCP server.
 - `tests/config.test.mjs`: runtime configuration test.
 - `tests/install.test.ps1`: installer configuration test.
@@ -27,6 +27,6 @@
 
 ## Platform Setup
 
-- A workspace is the project directory where Codex should load this MCP; it is not the GitLabMCP source directory or a GitLab group.
-- Windows uses `install.ps1 -Workspace <path>`.
-- macOS installs dependencies with Yarn, forwards `GitLabAccessToken` from the user launch environment, and adds the MCP section to `<workspace>/.codex/config.toml`.
+- Windows uses parameterless `install.ps1` and writes the MCP section to the current user's `~/.codex/config.toml`.
+- macOS installs dependencies with Yarn, forwards `GitLabAccessToken` from the user launch environment, and adds the same MCP section to `~/.codex/config.toml`.
+- Previous project-local MCP sections should be removed after global installation so they cannot override the user configuration.

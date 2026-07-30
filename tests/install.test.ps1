@@ -4,8 +4,7 @@ Set-StrictMode -Version Latest
 . (Join-Path $PSScriptRoot "..\install.ps1")
 
 $testRoot = Join-Path ([IO.Path]::GetTempPath()) "gitlab-mcp-install-$([guid]::NewGuid())"
-$workspace = Join-Path $testRoot "workspace"
-$configDirectory = Join-Path $workspace ".codex"
+$configDirectory = Join-Path $testRoot ".codex"
 $configPath = Join-Path $configDirectory "config.toml"
 
 try {
@@ -28,8 +27,8 @@ example = true
         [Text.UTF8Encoding]::new($false)
     )
 
-    Set-McpConfig -Workspace $workspace
-    Set-McpConfig -Workspace $workspace
+    Set-McpConfig -ConfigDirectory $configDirectory
+    Set-McpConfig -ConfigDirectory $configDirectory
 
     $config = [IO.File]::ReadAllText($configPath)
     $serverPath = (Resolve-Path (Join-Path $PSScriptRoot "..\src\server.mjs")).Path.Replace("\", "/")
@@ -50,7 +49,7 @@ example = true
         throw "GitLabAccessToken forwarding is missing"
     }
     if ($config.Contains("GitLabGroupPath") -or $config.Contains("GitLabDeployJobName")) {
-        throw "Repository scope is still fixed in workspace configuration"
+        throw "Repository scope is still fixed in global configuration"
     }
     if (-not $config.Contains('default_tools_approval_mode = "writes"')) {
         throw "Write approval mode is missing"

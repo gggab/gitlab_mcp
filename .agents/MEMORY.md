@@ -34,9 +34,10 @@ This project is a local STDIO MCP server that lets Codex inspect and control dep
 
 - Runtime: Node.js 20.
 - Entry point: `src/server.mjs`.
-- Windows installer: run `install.ps1 -Workspace <path>` to install dependencies, store the user-scoped token, update the workspace MCP config, and verify the server.
-- Workspace means the project directory where Codex should load this MCP; it is not the GitLabMCP source directory or a GitLab group.
-- macOS setup is manual: install with Yarn, expose `GitLabAccessToken` to the Codex process, and add the MCP section to `<workspace>/.codex/config.toml`.
+- Windows installer: run parameterless `install.ps1` to install dependencies, store the user-scoped token, update `~/.codex/config.toml`, and verify the server.
+- The MCP is user-global and available to all new Codex conversations; project directories are not part of installation.
+- macOS setup is manual: install with Yarn, expose `GitLabAccessToken` to the Codex process, and add the MCP section to `~/.codex/config.toml`.
+- Remove legacy project-local MCP sections after global installation so they cannot override the user configuration.
 - Configuration test: `tests/config.test.mjs`.
 - Optional live smoke test: `tests/smoke.mjs`.
 - Package manager: Yarn; `yarn.lock` is the lockfile.
@@ -49,7 +50,7 @@ This project is a local STDIO MCP server that lets Codex inspect and control dep
 
 ## Codex Integration
 
-Each target workspace registration must:
+The user-level registration must:
 
 - point `args` and `cwd` to this project directory;
 - forward `GitLabAccessToken` with `env_vars`;

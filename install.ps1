@@ -1,7 +1,5 @@
 [CmdletBinding()]
-param(
-    [string]$Workspace
-)
+param()
 
 $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
@@ -14,17 +12,14 @@ $script:TokenName = "GitLabAccessToken"
 function Set-McpConfig {
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory)]
-        [string]$Workspace
+        [string]$ConfigDirectory = (Join-Path ([Environment]::GetFolderPath("UserProfile")) ".codex")
     )
 
-    $workspacePath = (Resolve-Path -LiteralPath $Workspace).Path
     $serverPath = Join-Path $script:ProjectRoot "src\server.mjs"
     if (-not (Test-Path -LiteralPath $serverPath -PathType Leaf)) {
         throw "MCP server entry point not found: $serverPath"
     }
 
-    $configDirectory = Join-Path $workspacePath ".codex"
     $configPath = Join-Path $configDirectory "config.toml"
     New-Item -ItemType Directory -Path $configDirectory -Force | Out-Null
 
@@ -95,13 +90,6 @@ function Get-GitLabToken {
 }
 
 function Invoke-Installer {
-    if ([string]::IsNullOrWhiteSpace($Workspace)) {
-        throw 'Specify the Codex workspace with -Workspace'
-    }
-    if (-not (Test-Path -LiteralPath $Workspace -PathType Container)) {
-        throw "Workspace does not exist: $Workspace"
-    }
-
     $node = Get-Command node -ErrorAction SilentlyContinue
     if (-not $node) {
         throw "Node.js 20 or newer is required"
@@ -137,8 +125,8 @@ function Invoke-Installer {
         Pop-Location
     }
 
-    Set-McpConfig -Workspace $Workspace
-    Write-Output "Installation complete. Restart Codex and open the trusted workspace."
+    Set-McpConfig
+    Write-Output "Installation complete. Restart Codex."
 }
 
 if ($MyInvocation.InvocationName -ne ".") {
