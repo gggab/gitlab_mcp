@@ -95,3 +95,7 @@ tests/join.test.sh      macOS 一行接入脚本测试（可注入 Keychain stub
 tests/smoke.mjs         GitLab 只读冒烟测试
 docs/                   项目维护文档
 ```
+
+## 开源协议
+
+本项目以 [MIT License](LICENSE) 发布。
