@@ -12,10 +12,15 @@ function config(name) {
 const projectPath = config("GitLabSmokeProjectPath");
 const deployJobName = config("GitLabSmokeDeployJobName");
 const pipelineRef = process.env.GitLabSmokeRef?.trim();
-config("GitLabAccessToken");
+const gitlabToken = config("GitLabAccessToken");
 const { httpServer, host, port } = await startHttpServer({ port: 0 });
 const transport = new StreamableHTTPClientTransport(
   new URL(`http://${host}:${port}${MCP_PATH}`),
+  {
+    requestInit: {
+      headers: { Authorization: `Bearer ${gitlabToken}` },
+    },
+  },
 );
 const client = new Client({ name: "gitlab-mcp-smoke", version: "1.0.0" });
 

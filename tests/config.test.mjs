@@ -3,11 +3,14 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
 import { MCP_PATH, startHttpServer } from "../src/server.mjs";
 
-process.env.GitLabAccessToken = "not-used";
-
 const { httpServer, host, port } = await startHttpServer({ port: 0 });
 const transport = new StreamableHTTPClientTransport(
   new URL(`http://${host}:${port}${MCP_PATH}`),
+  {
+    requestInit: {
+      headers: { Authorization: "Bearer not-used" },
+    },
+  },
 );
 const client = new Client({ name: "gitlab-mcp-config", version: "1.0.0" });
 
@@ -83,6 +86,18 @@ try {
     },
   });
   assert.equal(oldProjectRejected.isError, true);
+
+  const unauthorized = await fetch(`http://${host}:${port}${MCP_PATH}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: {},
+    }),
+  });
+  assert.equal(unauthorized.status, 401);
 
   console.log("ok: conversation project scope verified over streamable HTTP");
 } finally {

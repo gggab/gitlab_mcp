@@ -50,7 +50,7 @@ HTTP 模式下 Codex 不会自动启动服务，需要先运行：
 yarn start
 ```
 
-服务默认监听 `http://127.0.0.1:8932/mcp`，可用环境变量 `GitLabMcpHost` 和 `GitLabMcpPort` 修改。修改端口后要同步更新 `~/.codex/config.toml` 中的 `url`。Token 由服务进程读取，请从能看到 `GitLabAccessToken` 用户环境变量的新终端中启动。
+服务默认监听 `http://127.0.0.1:8932/mcp`，可用环境变量 `GitLabMcpHost` 和 `GitLabMcpPort` 修改。修改端口后要同步更新 `~/.codex/config.toml` 中的 `url`。服务本身不再读取 Token：Codex 通过 `bearer_token_env_var = "GitLabAccessToken"` 把你本机环境变量中的 Token 作为 `Authorization: Bearer` 头发给服务。
 
 ### 4. 重启 Codex
 
@@ -75,7 +75,7 @@ command -v node
 
 记下 `command -v node` 输出的绝对路径，例如 `/opt/homebrew/bin/node`。
 
-### 2. 把 Token 提供给 MCP 服务
+### 2. 把 Token 提供给 Codex
 
 macOS 默认的 zsh 可以隐藏输入 Token，并把它提供给当前登录会话中之后启动的应用：
 
@@ -85,7 +85,7 @@ launchctl setenv GitLabAccessToken "$GITLAB_TOKEN"
 unset GITLAB_TOKEN
 ```
 
-Token 由 MCP 服务进程读取，不会写入 Codex 配置。注销或重启 macOS 后，需要重新执行这一步。
+Token 不会写入 Codex 配置：Codex 通过 `bearer_token_env_var` 读取该环境变量，并在每个请求中以 `Authorization: Bearer` 头转发给 MCP 服务。注销或重启 macOS 后，需要重新执行这一步。
 
 ### 3. 创建全局 Codex 配置
 
@@ -94,6 +94,7 @@ Token 由 MCP 服务进程读取，不会写入 Codex 配置。注销或重启 m
 ```toml
 [mcp_servers.gitlab_deployment]
 url = "http://127.0.0.1:8932/mcp"
+bearer_token_env_var = "GitLabAccessToken"
 enabled_tools = [
   "configure_project_scope",
   "list_group_projects",
@@ -159,7 +160,7 @@ Codex 必须先展示项目、部署任务、ref、pipeline ID 和提交 SHA，�
 - 部署任务必须是所选 pipeline 中名称完全匹配的 `manual` job；
 - 部署前必须核对项目、任务、ref、pipeline ID 和提交 SHA；
 - 部署必须再次获得写操作批准；
-- Token 只通过环境变量传入，不应写入仓库或 Codex 配置。
+- Token 按请求以 `Authorization: Bearer` 头传入，服务不保存 Token，也不应把 Token 写入仓库或 Codex 配置。
 
 ## 开发验证
 

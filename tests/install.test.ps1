@@ -44,6 +44,9 @@ example = true
     if (-not $config.Contains('url = "http://127.0.0.1:8932/mcp"')) {
         throw "Streamable HTTP MCP URL is missing"
     }
+    if (-not $config.Contains('bearer_token_env_var = "GitLabAccessToken"')) {
+        throw "Per-user bearer token forwarding is missing"
+    }
     if ($config.Contains("command = `"node`"") -or $config.Contains("env_vars")) {
         throw "Legacy stdio configuration is still present"
     }

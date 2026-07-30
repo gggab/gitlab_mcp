@@ -7,7 +7,6 @@ import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 
 const API_URL = "https://gitlab.sz.sensetime.com/api/v4";
-const TOKEN_ENV = "GitLabAccessToken";
 export const MCP_PATH = "/mcp";
 export const DEFAULT_HOST = "127.0.0.1";
 export const DEFAULT_PORT = 8932;
@@ -39,12 +38,14 @@ const changesScope = {
   openWorldHint: false,
 };
 
-function token() {
-  const value = process.env[TOKEN_ENV];
-  if (!value) {
-    throw new Error(`${TOKEN_ENV} is not available to the MCP process`);
+function bearerToken(extra) {
+  const header = extra?.requestInfo?.headers?.["authorization"];
+  const value = Array.isArray(header) ? header[0] : header;
+  const match = typeof value === "string" && /^Bearer\s+(\S+)$/i.exec(value);
+  if (!match) {
+    throw new Error("Request must carry an Authorization: Bearer <GitLab token> header");
   }
-  return value;
+  return match[1];
 }
 
 function gitlabPath(value, label) {
@@ -68,16 +69,16 @@ function selectedProject(value, scopeToken) {
   };
 }
 
-function safeErrorBody(body) {
-  return body.replaceAll(token(), "[REDACTED]").slice(0, 500);
+function safeErrorBody(body, gitlabToken) {
+  return body.replaceAll(gitlabToken, "[REDACTED]").slice(0, 500);
 }
 
-async function request(path, init = {}) {
+async function request(path, gitlabToken, init = {}) {
   const response = await fetch(`${API_URL}${path}`, {
     ...init,
     headers: {
       Accept: "application/json",
-      "PRIVATE-TOKEN": token(),
+      "PRIVATE-TOKEN": gitlabToken,
       ...init.headers,
     },
     signal: AbortSignal.timeout(30_000),
@@ -86,7 +87,7 @@ async function request(path, init = {}) {
 
   if (!response.ok) {
     throw new Error(
-      `GitLab API ${response.status} ${response.statusText}: ${safeErrorBody(body)}`,
+      `GitLab API ${response.status} ${response.statusText}: ${safeErrorBody(body, gitlabToken)}`,
     );
   }
 
@@ -96,13 +97,13 @@ async function request(path, init = {}) {
   };
 }
 
-async function allPages(path) {
+async function allPages(path, gitlabToken) {
   const results = [];
   let page = "1";
 
   while (page) {
     const separator = path.includes("?") ? "&" : "?";
-    const response = await request(`${path}${separator}page=${page}`);
+    const response = await request(`${path}${separator}page=${page}`, gitlabToken);
     results.push(...response.data);
     page = response.headers.get("x-next-page");
   }
@@ -217,7 +218,8 @@ export function createServer() {
       },
       annotations: readOnly,
     },
-    async ({ group_path, search }) => {
+    async ({ group_path, search }, extra) => {
+      const gitlabToken = bearerToken(extra);
       const group = gitlabPath(group_path, "Group");
       const query = new URLSearchParams({
         include_subgroups: "true",
@@ -229,6 +231,7 @@ export function createServer() {
 
       const projects = await allPages(
         `/groups/${encodeURIComponent(group)}/projects?${query}`,
+        gitlabToken,
       );
       return output(
         projects.map((project) => ({
@@ -276,7 +279,8 @@ export function createServer() {
       },
       annotations: readOnly,
     },
-    async ({ scope_token, project_path, ref, status, limit }) => {
+    async ({ scope_token, project_path, ref, status, limit }, extra) => {
+      const gitlabToken = bearerToken(extra);
       const project = selectedProject(project_path, scope_token).apiPath;
       const query = new URLSearchParams({
         per_page: String(limit),
@@ -288,6 +292,7 @@ export function createServer() {
 
       const response = await request(
         `/projects/${project}/pipelines?${query}`,
+        gitlabToken,
       );
       return output(response.data.map(compactPipeline));
     },
@@ -311,10 +316,12 @@ export function createServer() {
       },
       annotations: readOnly,
     },
-    async ({ scope_token, project_path, pipeline_id }) => {
+    async ({ scope_token, project_path, pipeline_id }, extra) => {
+      const gitlabToken = bearerToken(extra);
       const project = selectedProject(project_path, scope_token).apiPath;
       const jobs = await allPages(
         `/projects/${project}/pipelines/${pipeline_id}/jobs?per_page=100`,
+        gitlabToken,
       );
       return output(jobs.map(compactJob));
     },
@@ -358,11 +365,12 @@ export function createServer() {
       pipeline_id,
       deploy_job_name,
       expected_sha,
-    }) => {
+    }, extra) => {
+      const gitlabToken = bearerToken(extra);
       const selected = selectedProject(project_path, scope_token);
       const project = selected.apiPath;
       const pipeline = (
-        await request(`/projects/${project}/pipelines/${pipeline_id}`)
+        await request(`/projects/${project}/pipelines/${pipeline_id}`, gitlabToken)
       ).data;
 
       if (!pipeline.sha.startsWith(expected_sha)) {
@@ -373,6 +381,7 @@ export function createServer() {
 
       const jobs = await allPages(
         `/projects/${project}/pipelines/${pipeline_id}/jobs?per_page=100`,
+        gitlabToken,
       );
       const job = jobs.find(
         (candidate) =>
@@ -391,7 +400,7 @@ export function createServer() {
       }
 
       const startedJob = (
-        await request(`/projects/${project}/jobs/${job.id}/play`, {
+        await request(`/projects/${project}/jobs/${job.id}/play`, gitlabToken, {
           method: "POST",
         })
       ).data;
@@ -452,6 +461,13 @@ export function startHttpServer({ host, port } = {}) {
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
     if (url.pathname !== MCP_PATH) {
       writeJsonRpcError(res, 404, `Unknown path: ${url.pathname}`);
+      return;
+    }
+
+    const authorization = req.headers.authorization;
+    if (typeof authorization !== "string" || !/^Bearer\s+\S+$/i.test(authorization)) {
+      res.writeHead(401, { "www-authenticate": "Bearer" });
+      writeJsonRpcError(res, 401, "Authorization: Bearer <GitLab token> is required");
       return;
     }
 

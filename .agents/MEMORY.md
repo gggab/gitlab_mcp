@@ -10,7 +10,9 @@ This project is a local Streamable HTTP MCP server that lets Codex inspect and c
 - Project access requires a process-local scope token created after user confirmation.
 - Each scope contains exact project paths.
 - New sessions without a token must configure their own scope; a session can configure again to change selection.
-- Access token environment variable: `GitLabAccessToken` (read by the MCP server process).
+- Access token environment variable: `GitLabAccessToken` (held by each user's Codex process, forwarded per request).
+- Every `/mcp` request must carry `Authorization: Bearer <GitLab token>`; unauthenticated requests get HTTP 401.
+- The server never stores tokens; each request's token goes straight to the GitLab API so audit records stay attributable to the caller.
 - Never commit, print, log, or share the token.
 
 ## MCP Tools
@@ -38,7 +40,7 @@ This project is a local Streamable HTTP MCP server that lets Codex inspect and c
 - Windows installer: run parameterless `install.ps1` to install dependencies, store the user-scoped token, update `~/.codex/config.toml` with the URL-based MCP section, and verify the server.
 - The MCP is user-global and available to all new Codex conversations; project directories are not part of installation.
 - The server must be running (`yarn start`) before Codex connects; Codex does not start it in HTTP mode.
-- macOS setup is manual: install with Yarn, expose `GitLabAccessToken` to the server process, and add the URL-based MCP section to `~/.codex/config.toml`.
+- macOS setup is manual: install with Yarn, expose `GitLabAccessToken` to the Codex process, and add the URL-based MCP section to `~/.codex/config.toml`.
 - Remove legacy project-local MCP sections after global installation so they cannot override the user configuration.
 - Configuration test: `tests/config.test.mjs` (starts the HTTP server in-process on an ephemeral port).
 - Optional live smoke test: `tests/smoke.mjs`.
@@ -55,7 +57,8 @@ This project is a local Streamable HTTP MCP server that lets Codex inspect and c
 The user-level registration must:
 
 - point `url` at the running server, default `http://127.0.0.1:8932/mcp`;
-- keep the token out of Codex configuration (the server reads `GitLabAccessToken` itself);
+- forward the per-user token with `bearer_token_env_var = "GitLabAccessToken"`;
+- keep the token out of Codex configuration;
 - set `default_tools_approval_mode = "writes"`.
 
 Restart Codex after changing MCP configuration or moving the server.

@@ -27,6 +27,7 @@ function Set-McpConfig {
     $block = @"
 [mcp_servers.$($script:ServerName)]
 url = "$($script:McpUrl)"
+bearer_token_env_var = "$($script:TokenName)"
 enabled_tools = [
   "configure_project_scope",
   "list_group_projects",
