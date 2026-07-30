@@ -10,6 +10,10 @@
 - `tests/install.test.ps1`: installer configuration test.
 - `tests/smoke.mjs`: optional read-only GitLab smoke test.
 
+## Guides
+
+- [内网部署手册](deployment.md): intranet hosting with systemd, nginx, and per-user bearer tokens.
+
 ## Deployment Contract
 
 - `configure_project_scope` requires exact project paths and `CONFIRM PROJECT SCOPE`.
