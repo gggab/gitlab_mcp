@@ -1,14 +1,15 @@
+import { randomUUID } from "node:crypto";
 import { pathToFileURL } from "node:url";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 
 const API_URL = "https://gitlab.sz.sensetime.com/api/v4";
-const GROUP_PATH = "ksa/standard-smart-office";
-const DEPLOY_JOB_NAME = "deploy to jv 26 env";
 const TOKEN_ENV = "GitLabAccessToken";
-const PROJECT_PATH_PATTERN =
-  /^ksa\/standard-smart-office(?:\/[a-zA-Z0-9_.-]+)+$/;
+const GITLAB_PATH_PATTERN =
+  /^[a-zA-Z0-9_.-]+(?:\/[a-zA-Z0-9_.-]+)*$/;
+// ponytail: process-local scopes last until restart; add expiry only if long-lived servers accumulate them.
+const scopes = new Map();
 
 const readOnly = {
   readOnlyHint: true,
@@ -24,6 +25,13 @@ const writesDeployment = {
   openWorldHint: true,
 };
 
+const changesScope = {
+  readOnlyHint: false,
+  destructiveHint: false,
+  idempotentHint: false,
+  openWorldHint: false,
+};
+
 function token() {
   const value = process.env[TOKEN_ENV];
   if (!value) {
@@ -32,15 +40,25 @@ function token() {
   return value;
 }
 
-function projectPath(value) {
-  if (!PROJECT_PATH_PATTERN.test(value)) {
-    throw new Error(`Project must be inside ${GROUP_PATH}`);
+function gitlabPath(value, label) {
+  if (!GITLAB_PATH_PATTERN.test(value)) {
+    throw new Error(`${label} is not a valid GitLab path`);
   }
   return value;
 }
 
-function projectApiPath(value) {
-  return encodeURIComponent(projectPath(value));
+function selectedProject(value, scopeToken) {
+  gitlabPath(value, "Project");
+  const selectedScope = scopes.get(scopeToken);
+  if (!selectedScope) {
+    throw new Error("Project scope is missing; confirm repositories first");
+  }
+  if (!selectedScope.projectPaths.has(value)) {
+    throw new Error(`Project ${value} is outside the confirmed project scope`);
+  }
+  return {
+    apiPath: encodeURIComponent(value),
+  };
 }
 
 function safeErrorBody(body) {
@@ -122,21 +140,67 @@ function output(value) {
 
 export function createServer() {
   const server = new McpServer(
-    { name: "standard-smart-office-gitlab", version: "1.0.0" },
+    { name: "gitlab-deployment", version: "1.0.0" },
     {
       instructions:
-        `Only access projects under ${GROUP_PATH}. Read before writing. ` +
-        `The only deployment write tool plays the exact manual job "${DEPLOY_JOB_NAME}" ` +
-        "and requires the user-approved pipeline SHA.",
+        "Use list_group_projects only for discovery. Before listing pipelines or jobs, show the exact repositories to the user, " +
+        "then call configure_project_scope after confirmation. Pass its scope token to later calls. " +
+        "Before deployment, show the exact job, pipeline, ref and SHA and obtain separate approval.",
+    },
+  );
+
+  server.registerTool(
+    "configure_project_scope",
+    {
+      title: "Confirm repositories for this conversation",
+      description:
+        "Create a conversation scope for exact repositories. " +
+        "Call only after showing them to the user and receiving confirmation. " +
+        "Call again to select different repositories.",
+      inputSchema: {
+        project_paths: z
+          .array(z.string().max(255))
+          .min(1)
+          .max(50)
+          .describe("Exact GitLab project paths approved by the user"),
+        confirmation: z
+          .literal("CONFIRM PROJECT SCOPE")
+          .describe('Exact confirmation text: "CONFIRM PROJECT SCOPE"'),
+      },
+      annotations: changesScope,
+    },
+    async ({ project_paths }) => {
+      if (new Set(project_paths).size !== project_paths.length) {
+        throw new Error("Project scope contains duplicate paths");
+      }
+      for (const projectPath of project_paths) {
+        gitlabPath(projectPath, "Project");
+        if (!projectPath.includes("/")) {
+          throw new Error(`Project is not a full GitLab path: ${projectPath}`);
+        }
+      }
+
+      const scopeToken = randomUUID();
+      scopes.set(scopeToken, {
+        projectPaths: new Set(project_paths),
+      });
+      return output({
+        scope_token: scopeToken,
+        project_paths,
+      });
     },
   );
 
   server.registerTool(
     "list_group_projects",
     {
-      title: "List Standard Smart Office projects",
-      description: `List projects under ${GROUP_PATH}, including subgroups.`,
+      title: "List GitLab group projects",
+      description: "List projects under a GitLab group, including subgroups.",
       inputSchema: {
+        group_path: z
+          .string()
+          .max(255)
+          .describe("GitLab group path to inspect"),
         search: z
           .string()
           .trim()
@@ -146,7 +210,8 @@ export function createServer() {
       },
       annotations: readOnly,
     },
-    async ({ search }) => {
+    async ({ group_path, search }) => {
+      const group = gitlabPath(group_path, "Group");
       const query = new URLSearchParams({
         include_subgroups: "true",
         with_shared: "false",
@@ -156,7 +221,7 @@ export function createServer() {
       if (search) query.set("search", search);
 
       const projects = await allPages(
-        `/groups/${encodeURIComponent(GROUP_PATH)}/projects?${query}`,
+        `/groups/${encodeURIComponent(group)}/projects?${query}`,
       );
       return output(
         projects.map((project) => ({
@@ -175,8 +240,12 @@ export function createServer() {
     "list_pipelines",
     {
       title: "List project pipelines",
-      description: "List recent pipelines for one project in the allowed group.",
+      description: "List recent pipelines for one project in the confirmed scope.",
       inputSchema: {
+        scope_token: z
+          .string()
+          .uuid()
+          .describe("Token returned by configure_project_scope"),
         project_path: z
           .string()
           .describe("Full GitLab path, including all subgroup segments"),
@@ -200,7 +269,8 @@ export function createServer() {
       },
       annotations: readOnly,
     },
-    async ({ project_path, ref, status, limit }) => {
+    async ({ scope_token, project_path, ref, status, limit }) => {
+      const project = selectedProject(project_path, scope_token).apiPath;
       const query = new URLSearchParams({
         per_page: String(limit),
         order_by: "id",
@@ -210,7 +280,7 @@ export function createServer() {
       if (status) query.set("status", status);
 
       const response = await request(
-        `/projects/${projectApiPath(project_path)}/pipelines?${query}`,
+        `/projects/${project}/pipelines?${query}`,
       );
       return output(response.data.map(compactPipeline));
     },
@@ -221,8 +291,12 @@ export function createServer() {
     {
       title: "List pipeline jobs",
       description:
-        `List jobs in a pipeline and identify the manual "${DEPLOY_JOB_NAME}" job.`,
+        "List jobs in a pipeline for a project in the confirmed scope.",
       inputSchema: {
+        scope_token: z
+          .string()
+          .uuid()
+          .describe("Token returned by configure_project_scope"),
         project_path: z
           .string()
           .describe("Full GitLab path, including all subgroup segments"),
@@ -230,38 +304,56 @@ export function createServer() {
       },
       annotations: readOnly,
     },
-    async ({ project_path, pipeline_id }) => {
+    async ({ scope_token, project_path, pipeline_id }) => {
+      const project = selectedProject(project_path, scope_token).apiPath;
       const jobs = await allPages(
-        `/projects/${projectApiPath(project_path)}/pipelines/${pipeline_id}/jobs?per_page=100`,
+        `/projects/${project}/pipelines/${pipeline_id}/jobs?per_page=100`,
       );
       return output(jobs.map(compactJob));
     },
   );
 
   server.registerTool(
-    "play_deploy_to_jv26_env",
+    "play_deploy_job",
     {
-      title: "Deploy a pipeline to environment jv26",
+      title: "Play the confirmed deployment job",
       description:
-        `Play only the exact manual GitLab job "${DEPLOY_JOB_NAME}". ` +
+        "Play only the exact manual GitLab job confirmed in the project scope. " +
         "Call only after showing the project, ref, pipeline ID and SHA to the user and receiving approval.",
       inputSchema: {
+        scope_token: z
+          .string()
+          .uuid()
+          .describe("Token returned by configure_project_scope"),
         project_path: z
           .string()
           .describe("Full GitLab path, including all subgroup segments"),
         pipeline_id: z.number().int().positive(),
+        deploy_job_name: z
+          .string()
+          .min(1)
+          .max(255)
+          .regex(/^(?=.*\S)[^\r\n]+$/)
+          .describe("Exact manual deployment job approved by the user"),
         expected_sha: z
           .string()
           .regex(/^[0-9a-f]{8,40}$/)
           .describe("User-approved full or abbreviated pipeline commit SHA"),
         confirmation: z
-          .literal("DEPLOY TO JV 26 ENV")
-          .describe('Exact confirmation text: "DEPLOY TO JV 26 ENV"'),
+          .literal("DEPLOY APPROVED")
+          .describe('Exact confirmation text: "DEPLOY APPROVED"'),
       },
       annotations: writesDeployment,
     },
-    async ({ project_path, pipeline_id, expected_sha }) => {
-      const project = projectApiPath(project_path);
+    async ({
+      scope_token,
+      project_path,
+      pipeline_id,
+      deploy_job_name,
+      expected_sha,
+    }) => {
+      const selected = selectedProject(project_path, scope_token);
+      const project = selected.apiPath;
       const pipeline = (
         await request(`/projects/${project}/pipelines/${pipeline_id}`)
       ).data;
@@ -277,17 +369,17 @@ export function createServer() {
       );
       const job = jobs.find(
         (candidate) =>
-          candidate.name === DEPLOY_JOB_NAME && candidate.status === "manual",
+          candidate.name === deploy_job_name && candidate.status === "manual",
       );
 
       if (!job) {
         const matchingStatuses = jobs
-          .filter((candidate) => candidate.name === DEPLOY_JOB_NAME)
+          .filter((candidate) => candidate.name === deploy_job_name)
           .map((candidate) => candidate.status);
         throw new Error(
           matchingStatuses.length
-            ? `"${DEPLOY_JOB_NAME}" is not manual; status: ${matchingStatuses.join(", ")}`
-            : `"${DEPLOY_JOB_NAME}" is not present in pipeline ${pipeline_id}`,
+            ? `"${deploy_job_name}" is not manual; status: ${matchingStatuses.join(", ")}`
+            : `"${deploy_job_name}" is not present in pipeline ${pipeline_id}`,
         );
       }
 

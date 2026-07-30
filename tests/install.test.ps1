@@ -49,17 +49,23 @@ example = true
     if (-not $config.Contains('env_vars = ["GitLabAccessToken"]')) {
         throw "GitLabAccessToken forwarding is missing"
     }
+    if ($config.Contains("GitLabGroupPath") -or $config.Contains("GitLabDeployJobName")) {
+        throw "Repository scope is still fixed in workspace configuration"
+    }
     if (-not $config.Contains('default_tools_approval_mode = "writes"')) {
         throw "Write approval mode is missing"
     }
-    if (-not $config.Contains('"play_deploy_to_jv26_env"')) {
-        throw "jv26 deployment tool is missing"
+    if (-not $config.Contains('"play_deploy_job"')) {
+        throw "Generic deployment tool is missing"
     }
-    if ($config.Contains('"play_deploy_to_26_env"')) {
-        throw "Old 26 deployment tool is still enabled"
+    if (-not $config.Contains('"configure_project_scope"')) {
+        throw "Conversation scope tool is missing"
     }
-    if ([regex]::Matches($config, "(?m)^\[mcp_servers\.standard_smart_office_gitlab\]$").Count -ne 1) {
+    if ([regex]::Matches($config, "(?m)^\[mcp_servers\.gitlab_deployment\]$").Count -ne 1) {
         throw "Managed MCP configuration is not idempotent"
+    }
+    if ($config.Contains("[mcp_servers.standard_smart_office_gitlab]")) {
+        throw "Legacy MCP configuration was not removed"
     }
 
     Write-Output "ok: installer config update verified"

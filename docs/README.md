@@ -6,12 +6,21 @@
 
 - `install.ps1`: install and configure the MCP for a Codex workspace.
 - `src/server.mjs`: GitLab MCP server.
+- `tests/config.test.mjs`: runtime configuration test.
 - `tests/install.test.ps1`: installer configuration test.
-- `tests/smoke.mjs`: MCP smoke test.
+- `tests/smoke.mjs`: optional read-only GitLab smoke test.
 
 ## Deployment Contract
 
-- Target environment: `jv26`.
-- Exact GitLab manual job: `deploy to jv 26 env`.
-- Write tool: `play_deploy_to_jv26_env`.
-- Required confirmation: `DEPLOY TO JV 26 ENV`.
+- `configure_project_scope` requires exact project paths and `CONFIRM PROJECT SCOPE`.
+- It returns a process-local `scope_token`; every project-specific read or write tool requires that token.
+- A scope allows only its exact project list.
+- A new conversation without the token must configure a new scope. Calling the tool again allows a different selection.
+- `list_group_projects` remains available without a scope for read-only discovery.
+- `play_deploy_job` receives the exact manual job name at deployment time.
+- Required confirmation: `DEPLOY APPROVED`.
+
+## Tests
+
+- `yarn test`: installer and runtime configuration tests; no GitLab access.
+- `yarn test:live`: read-only GitLab smoke test using `GitLabSmokeProjectPath`, `GitLabSmokeDeployJobName`, and optional `GitLabSmokeRef`.

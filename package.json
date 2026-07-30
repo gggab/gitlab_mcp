@@ -1,10 +1,11 @@
 {
-  "name": "standard-smart-office-gitlab-mcp",
+  "name": "gitlab-deployment-mcp",
   "private": true,
   "type": "module",
   "scripts": {
     "start": "node src/server.mjs",
-    "test": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/install.test.ps1 && node tests/smoke.mjs"
+    "test": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/install.test.ps1 && node tests/config.test.mjs",
+    "test:live": "node tests/smoke.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.0",

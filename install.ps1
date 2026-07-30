@@ -7,7 +7,8 @@ $ErrorActionPreference = "Stop"
 Set-StrictMode -Version Latest
 
 $script:ProjectRoot = $PSScriptRoot
-$script:ServerName = "standard_smart_office_gitlab"
+$script:ServerName = "gitlab_deployment"
+$script:LegacyServerName = "standard_smart_office_gitlab"
 $script:TokenName = "GitLabAccessToken"
 
 function Set-McpConfig {
@@ -36,10 +37,11 @@ args = ["$serverPath"]
 cwd = "$projectRoot"
 env_vars = ["$($script:TokenName)"]
 enabled_tools = [
+  "configure_project_scope",
   "list_group_projects",
   "list_pipelines",
   "list_pipeline_jobs",
-  "play_deploy_to_jv26_env",
+  "play_deploy_job",
 ]
 default_tools_approval_mode = "writes"
 startup_timeout_sec = 10
@@ -54,8 +56,10 @@ enabled = true
         ""
     }
 
-    $sectionPattern = "(?ms)^\[mcp_servers\.$([regex]::Escape($script:ServerName))\]\r?\n.*?(?=^\[|\z)"
-    $config = [regex]::Replace($config, $sectionPattern, "").TrimEnd()
+    foreach ($serverName in @($script:ServerName, $script:LegacyServerName)) {
+        $sectionPattern = "(?ms)^\[mcp_servers\.$([regex]::Escape($serverName))\]\r?\n.*?(?=^\[|\z)"
+        $config = [regex]::Replace($config, $sectionPattern, "").TrimEnd()
+    }
     $config = if ($config) {
         "$config`r`n`r`n$block`r`n"
     }
@@ -92,7 +96,7 @@ function Get-GitLabToken {
 
 function Invoke-Installer {
     if ([string]::IsNullOrWhiteSpace($Workspace)) {
-        throw 'Specify the Codex workspace: .\install.ps1 -Workspace "C:\path\to\StandardSmartOffice"'
+        throw 'Specify the Codex workspace with -Workspace'
     }
     if (-not (Test-Path -LiteralPath $Workspace -PathType Container)) {
         throw "Workspace does not exist: $Workspace"
