@@ -5,8 +5,10 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
+import { createOAuthBroker } from "./oauth.mjs";
 
-const API_URL = "https://gitlab.sz.sensetime.com/api/v4";
+const API_URL =
+  process.env.GitLabApiUrl ?? "https://gitlab.sz.sensetime.com/api/v4";
 export const MCP_PATH = "/mcp";
 export const DEFAULT_HOST = "127.0.0.1";
 export const DEFAULT_PORT = 8932;
@@ -78,7 +80,9 @@ async function request(path, gitlabToken, init = {}) {
     ...init,
     headers: {
       Accept: "application/json",
-      "PRIVATE-TOKEN": gitlabToken,
+      // Bearer works for both personal access tokens and OAuth access tokens,
+      // so the same path serves PAT and OAuth-brokered clients.
+      Authorization: `Bearer ${gitlabToken}`,
       ...init.headers,
     },
     signal: AbortSignal.timeout(30_000),
@@ -445,10 +449,11 @@ function writeJsonRpcError(res, status, message) {
   );
 }
 
-export function startHttpServer({ host, port } = {}) {
+export function startHttpServer({ host, port, oauth } = {}) {
   const listenHost = host ?? process.env[HOST_ENV] ?? DEFAULT_HOST;
   const listenPort = port ?? Number(process.env[PORT_ENV] ?? DEFAULT_PORT);
   const transports = new Map();
+  const broker = oauth ? createOAuthBroker(oauth) : undefined;
 
   const httpServer = createHttpServer((req, res) => {
     handleRequest(req, res).catch((error) => {
@@ -459,6 +464,11 @@ export function startHttpServer({ host, port } = {}) {
 
   async function handleRequest(req, res) {
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
+
+    if (broker && (await broker.handleRequest(req, res, url))) {
+      return;
+    }
+
     if (url.pathname !== MCP_PATH) {
       writeJsonRpcError(res, 404, `Unknown path: ${url.pathname}`);
       return;
@@ -466,7 +476,10 @@ export function startHttpServer({ host, port } = {}) {
 
     const authorization = req.headers.authorization;
     if (typeof authorization !== "string" || !/^Bearer\s+\S+$/i.test(authorization)) {
-      res.writeHead(401, { "www-authenticate": "Bearer" });
+      const authenticate = broker
+        ? `Bearer resource_metadata="${broker.resourceMetadataUrl}"`
+        : "Bearer";
+      res.writeHead(401, { "www-authenticate": authenticate });
       writeJsonRpcError(res, 401, "Authorization: Bearer <GitLab token> is required");
       return;
     }
@@ -516,9 +529,39 @@ export function startHttpServer({ host, port } = {}) {
   });
 }
 
+function oauthConfigFromEnv() {
+  const required = [
+    "GitLabMcpPublicUrl",
+    "GitLabOAuthClientId",
+    "GitLabOAuthClientSecret",
+  ];
+  const present = required.filter((name) => process.env[name]);
+  if (present.length === 0) {
+    return undefined;
+  }
+  if (present.length !== required.length) {
+    const missing = required.filter((name) => !process.env[name]);
+    throw new Error(
+      `OAuth broker is partially configured; missing: ${missing.join(", ")}`,
+    );
+  }
+  return {
+    publicUrl: process.env.GitLabMcpPublicUrl,
+    clientId: process.env.GitLabOAuthClientId,
+    clientSecret: process.env.GitLabOAuthClientSecret,
+    gitlabBaseUrl:
+      process.env.GitLabBaseUrl ?? API_URL.replace(/\/api\/v4$/, ""),
+    storePath: process.env.GitLabOAuthStorePath || undefined,
+  };
+}
+
 export async function main() {
-  const { host, port } = await startHttpServer();
+  const oauth = oauthConfigFromEnv();
+  const { host, port } = await startHttpServer({ oauth });
   console.log(`GitLab deployment MCP listening on http://${host}:${port}${MCP_PATH}`);
+  if (oauth) {
+    console.log("OAuth broker enabled (GitLab account sign-in for MCP clients)");
+  }
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {
