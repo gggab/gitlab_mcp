@@ -2,15 +2,15 @@ import { createHash, randomBytes, randomUUID } from "node:crypto";
 import { existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
 
 // OAuth broker: lets MCP clients (Kimi, Codex) authenticate with their GitLab
-// account instead of a personal access token. Downstream the broker is a
+// account in the browser. Downstream the broker is a
 // standards-compliant authorization server (DCR + authorization code + PKCE);
 // upstream it is a single pre-registered confidential GitLab OAuth app whose
 // fixed callback URI absorbs GitLab's exact redirect-URI matching. The token
 // endpoint relays the GitLab-issued tokens to the client, so the broker keeps
-// no token state and /mcp keeps forwarding Bearer tokens untouched.
+// no persistent token state and MCP requests keep forwarding Bearer tokens.
 //
 // Enabled only when server.mjs passes a config; without one the broker does
-// not exist and the PAT flow is the only path.
+// is required by the HTTP server.
 
 const PENDING_TTL_MS = 10 * 60 * 1000;
 const LOCAL_REDIRECT_HOSTS = new Set(["localhost", "127.0.0.1", "[::1]"]);
@@ -65,15 +65,19 @@ export function createOAuthBroker({
   clientSecret,
   gitlabBaseUrl,
   storePath,
+  mcpPath,
 }) {
   const issuer = publicUrl.replace(/\/+$/, "");
   const upstreamBase = gitlabBaseUrl.replace(/\/+$/, "");
   const callbackUrl = `${issuer}/oauth/callback`;
+  const resourceUrl = `${issuer}${mcpPath}`;
   const resourceMetadataUrl = `${issuer}/.well-known/oauth-protected-resource`;
 
   const clients = new Map();
   const pendingAuthorizations = new Map();
   const downstreamCodes = new Map();
+  // ponytail: token hashes are process-local, so clients reauthorize after a restart; persist only if that becomes a support burden.
+  const issuedAccessTokens = new Map();
 
   if (storePath && existsSync(storePath)) {
     const stored = JSON.parse(readFileSync(storePath, "utf8"));
@@ -107,6 +111,28 @@ export function createOAuthBroker({
         downstreamCodes.delete(key);
       }
     }
+    for (const [key, expiresAt] of issuedAccessTokens) {
+      if (expiresAt <= now) {
+        issuedAccessTokens.delete(key);
+      }
+    }
+  }
+
+  function rememberAccessToken(tokens) {
+    const accessToken = tokens?.access_token;
+    const expiresIn = Number(tokens?.expires_in);
+    if (
+      typeof accessToken !== "string" ||
+      !accessToken ||
+      !Number.isFinite(expiresIn) ||
+      expiresIn <= 0
+    ) {
+      throw new Error("GitLab OAuth token response is missing access_token or expires_in");
+    }
+    issuedAccessTokens.set(
+      createHash("sha256").update(accessToken).digest("base64url"),
+      Date.now() + expiresIn * 1000,
+    );
   }
 
   async function upstreamTokenRequest(form) {
@@ -317,6 +343,7 @@ export function createOAuthBroker({
         redirect_uri: callbackUrl,
         code_verifier: pending.verifier,
       });
+      rememberAccessToken(tokens);
     } catch (error) {
       oauthError(res, 502, "server_error", error.message);
       return;
@@ -374,6 +401,7 @@ export function createOAuthBroker({
           grant_type: "refresh_token",
           refresh_token: form.refresh_token,
         });
+        rememberAccessToken(tokens);
         sendJson(res, 200, tokens);
       } catch (error) {
         oauthError(res, 400, "invalid_grant", error.message);
@@ -392,12 +420,19 @@ export function createOAuthBroker({
   return {
     resourceMetadataUrl,
 
+    hasIssuedAccessToken(accessToken) {
+      sweepExpired();
+      return issuedAccessTokens.has(
+        createHash("sha256").update(accessToken).digest("base64url"),
+      );
+    },
+
     async handleRequest(req, res, url) {
       const query = Object.fromEntries(url.searchParams);
       switch (url.pathname) {
         case "/.well-known/oauth-protected-resource":
           sendJson(res, 200, {
-            resource: `${issuer}/mcp`,
+            resource: resourceUrl,
             authorization_servers: [issuer],
             bearer_methods_supported: ["header"],
             scopes_supported: ["api"],

@@ -7,12 +7,17 @@ Set-StrictMode -Version Latest
 $script:ProjectRoot = $PSScriptRoot
 $script:ServerName = "gitlab_deployment"
 $script:LegacyServerName = "standard_smart_office_gitlab"
-$script:TokenName = "GitLabAccessToken"
-$script:McpUrl = "http://127.0.0.1:8932/mcp"
+$script:OAuthConfigNames = @(
+    "GitLabMcpPublicUrl",
+    "GitLabOAuthClientId",
+    "GitLabOAuthClientSecret"
+)
 
 function Set-McpConfig {
     [CmdletBinding()]
     param(
+        [Parameter(Mandatory = $true)]
+        [string]$McpUrl,
         [string]$ConfigDirectory = (Join-Path ([Environment]::GetFolderPath("UserProfile")) ".codex")
     )
 
@@ -26,8 +31,7 @@ function Set-McpConfig {
 
     $block = @"
 [mcp_servers.$($script:ServerName)]
-url = "$($script:McpUrl)"
-bearer_token_env_var = "$($script:TokenName)"
+url = "$McpUrl"
 enabled_tools = [
   "configure_project_scope",
   "list_group_projects",
@@ -62,27 +66,29 @@ enabled = true
     Write-Output "Configured Codex MCP in $configPath"
 }
 
-function Get-GitLabToken {
-    $token = [Environment]::GetEnvironmentVariable($script:TokenName, "Process")
-    if (-not $token) {
-        $token = [Environment]::GetEnvironmentVariable($script:TokenName, "User")
-    }
-    if ($token) {
-        return $token
-    }
-
-    $secureToken = Read-Host "GitLab Access Token" -AsSecureString
-    if ($secureToken.Length -eq 0) {
-        throw "GitLab Access Token is required"
+function Get-OAuthMcpUrl {
+    $values = @{}
+    foreach ($name in $script:OAuthConfigNames) {
+        $value = [Environment]::GetEnvironmentVariable($name, "Process")
+        if (-not $value) {
+            $value = [Environment]::GetEnvironmentVariable($name, "User")
+        }
+        if ($value) {
+            $values[$name] = $value
+        }
     }
 
-    $pointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureToken)
-    try {
-        return [Runtime.InteropServices.Marshal]::PtrToStringBSTR($pointer)
+    $missing = $script:OAuthConfigNames | Where-Object { -not $values.ContainsKey($_) }
+    if ($missing) {
+        throw "OAuth broker configuration is required; missing: $($missing -join ', ')"
     }
-    finally {
-        [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer)
+
+    $publicUrl = $values.GitLabMcpPublicUrl.TrimEnd("/")
+    $parsed = $null
+    if (-not [uri]::TryCreate($publicUrl, [System.UriKind]::Absolute, [ref]$parsed) -or $parsed.Scheme -ne "https") {
+        throw "GitLabMcpPublicUrl must be an absolute HTTPS address"
     }
+    return "$publicUrl/mcp/gitlab-deployment"
 }
 
 function Invoke-Installer {
@@ -100,17 +106,14 @@ function Invoke-Installer {
         throw "Yarn is required"
     }
 
+    $mcpUrl = Get-OAuthMcpUrl
+
     Push-Location $script:ProjectRoot
     try {
         & $yarn.Source install --frozen-lockfile
         if ($LASTEXITCODE -ne 0) {
             throw "Dependency installation failed"
         }
-
-        $token = Get-GitLabToken
-        $env:GitLabAccessToken = $token
-        [Environment]::SetEnvironmentVariable($script:TokenName, $token, "User")
-        $token = $null
 
         & $yarn.Source test
         if ($LASTEXITCODE -ne 0) {
@@ -121,8 +124,8 @@ function Invoke-Installer {
         Pop-Location
     }
 
-    Set-McpConfig
-    Write-Output "Installation complete. Start the MCP server with 'yarn start', then restart Codex."
+    Set-McpConfig -McpUrl $mcpUrl
+    Write-Output "Installation complete. Start the MCP server with 'yarn start', then restart Codex to authorize in the browser."
 }
 
 if ($MyInvocation.InvocationName -ne ".") {

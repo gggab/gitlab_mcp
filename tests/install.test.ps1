@@ -6,8 +6,20 @@ Set-StrictMode -Version Latest
 $testRoot = Join-Path ([IO.Path]::GetTempPath()) "gitlab-mcp-install-$([guid]::NewGuid())"
 $configDirectory = Join-Path $testRoot ".codex"
 $configPath = Join-Path $configDirectory "config.toml"
+$oauthNames = @("GitLabMcpPublicUrl", "GitLabOAuthClientId", "GitLabOAuthClientSecret")
+$previousOAuthValues = @{}
 
 try {
+    foreach ($name in $oauthNames) {
+        $previousOAuthValues[$name] = [Environment]::GetEnvironmentVariable($name, "Process")
+    }
+    [Environment]::SetEnvironmentVariable("GitLabMcpPublicUrl", "https://mcp.example.test/", "Process")
+    [Environment]::SetEnvironmentVariable("GitLabOAuthClientId", "test-client-id", "Process")
+    [Environment]::SetEnvironmentVariable("GitLabOAuthClientSecret", "test-client-secret", "Process")
+    if ((Get-OAuthMcpUrl) -ne "https://mcp.example.test/mcp/gitlab-deployment") {
+        throw "OAuth public URL was not converted to the MCP URL"
+    }
+
     New-Item -ItemType Directory -Path $configDirectory | Out-Null
     [IO.File]::WriteAllText(
         $configPath,
@@ -27,8 +39,9 @@ example = true
         [Text.UTF8Encoding]::new($false)
     )
 
-    Set-McpConfig -ConfigDirectory $configDirectory
-    Set-McpConfig -ConfigDirectory $configDirectory
+    $mcpUrl = "https://mcp.example.test/mcp/gitlab-deployment"
+    Set-McpConfig -McpUrl $mcpUrl -ConfigDirectory $configDirectory
+    Set-McpConfig -McpUrl $mcpUrl -ConfigDirectory $configDirectory
 
     $config = [IO.File]::ReadAllText($configPath)
 
@@ -41,11 +54,11 @@ example = true
     if (-not $config.Contains("[features]")) {
         throw "Configuration after the managed MCP section was removed"
     }
-    if (-not $config.Contains('url = "http://127.0.0.1:8932/mcp"')) {
-        throw "Streamable HTTP MCP URL is missing"
+    if (-not $config.Contains("url = `"$mcpUrl`"")) {
+        throw "OAuth MCP URL is missing"
     }
-    if (-not $config.Contains('bearer_token_env_var = "GitLabAccessToken"')) {
-        throw "Per-user bearer token forwarding is missing"
+    if ($config -match "(?m)^.*env_.*=") {
+        throw "Client credential configuration is still present"
     }
     if ($config.Contains("command = `"node`"") -or $config.Contains("env_vars")) {
         throw "Legacy stdio configuration is still present"
@@ -72,6 +85,9 @@ example = true
     Write-Output "ok: installer config update verified"
 }
 finally {
+    foreach ($name in $oauthNames) {
+        [Environment]::SetEnvironmentVariable($name, $previousOAuthValues[$name], "Process")
+    }
     if ((Split-Path $testRoot -Leaf) -like "gitlab-mcp-install-*") {
         Remove-Item -LiteralPath $testRoot -Recurse -Force -ErrorAction SilentlyContinue
     }

@@ -116,7 +116,6 @@ const fakeGitlab = createHttpServer((req, res) => {
     const accepted = new Set([
       "Bearer gl-oauth-access-1",
       "Bearer gl-oauth-access-2",
-      "Bearer pat-token-1",
     ]);
     if (!accepted.has(req.headers.authorization)) {
       res.writeHead(401, { "content-type": "application/json" });
@@ -402,7 +401,7 @@ try {
   const refreshedTokens = await readJson(refreshed);
   assert.equal(refreshedTokens.access_token, "gl-oauth-access-2");
 
-  // --- OAuth access token works against /mcp and is forwarded as Bearer ---
+  // --- OAuth access token works against the GitLab MCP route and is forwarded as Bearer ---
   const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
   const { StreamableHTTPClientTransport } = await import(
     "@modelcontextprotocol/sdk/client/streamableHttp.js"
@@ -415,6 +414,45 @@ try {
       },
     }),
   );
+  const { tools } = await mcpClient.listTools();
+  assert.deepEqual(
+    tools.map(({ name }) => name),
+    [
+      "configure_project_scope",
+      "list_group_projects",
+      "list_pipelines",
+      "list_pipeline_jobs",
+      "play_deploy_job",
+    ],
+  );
+  const unconfigured = await mcpClient.callTool({
+    name: "list_pipelines",
+    arguments: {
+      scope_token: "00000000-0000-4000-8000-000000000000",
+      project_path: "team/example/one",
+    },
+  });
+  assert.equal(unconfigured.isError, true);
+  assert.match(unconfigured.content[0].text, /confirm repositories first/);
+
+  const configured = await mcpClient.callTool({
+    name: "configure_project_scope",
+    arguments: {
+      project_paths: ["team/example/one"],
+      confirmation: "CONFIRM PROJECT SCOPE",
+    },
+  });
+  const { scope_token: scopeToken } = JSON.parse(configured.content[0].text);
+  const outsideScope = await mcpClient.callTool({
+    name: "list_pipelines",
+    arguments: {
+      scope_token: scopeToken,
+      project_path: "team/example/two",
+    },
+  });
+  assert.equal(outsideScope.isError, true);
+  assert.match(outsideScope.content[0].text, /confirmed project scope/);
+
   const listed = await mcpClient.callTool({
     name: "list_group_projects",
     arguments: { group_path: "team" },
@@ -428,19 +466,16 @@ try {
   assert.equal(forwarded.privateToken, undefined);
   await mcpClient.close();
 
-  // --- PAT flow keeps working through the same Bearer path ---
-  const patClient = new Client({ name: "pat-test", version: "1.0.0" });
-  await patClient.connect(
-    new StreamableHTTPClientTransport(new URL(`${publicUrl}${MCP_PATH}`), {
-      requestInit: { headers: { Authorization: "Bearer pat-token-1" } },
-    }),
-  );
-  const patListed = await patClient.callTool({
-    name: "list_group_projects",
-    arguments: { group_path: "patteam" },
+  // --- a bearer value not issued by the OAuth broker is rejected at the GitLab MCP route ---
+  const unknownBearer = await fetch(`${publicUrl}${MCP_PATH}`, {
+    method: "POST",
+    headers: {
+      authorization: "Bearer manually-supplied-access-token",
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} }),
   });
-  assert.notEqual(patListed.isError, true);
-  await patClient.close();
+  assert.equal(unknownBearer.status, 401);
 
   // --- 401 advertises the protected-resource metadata for discovery ---
   const unauthorized = await fetch(`${publicUrl}${MCP_PATH}`, {
@@ -478,22 +513,12 @@ try {
   assert.equal(afterRestart.status, 302);
   secondServer.close();
 
-  // --- broker disabled without configuration ---
+  // --- every HTTP server requires the OAuth broker ---
   const plainPort = await freePort();
-  const { httpServer: plainServer } = await startHttpServer({
-    host: "127.0.0.1",
-    port: plainPort,
-  });
-  const disabledRegister = await fetch(
-    `http://127.0.0.1:${plainPort}/oauth/register`,
-    {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ redirect_uris: [clientRedirectUri] }),
-    },
+  assert.throws(
+    () => startHttpServer({ host: "127.0.0.1", port: plainPort }),
+    /OAuth broker configuration is required/,
   );
-  assert.equal(disabledRegister.status, 404);
-  plainServer.close();
 
   console.log("ok: OAuth broker flow verified end to end");
 } finally {

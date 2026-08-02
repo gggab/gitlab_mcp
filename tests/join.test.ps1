@@ -24,15 +24,14 @@ function Assert-Throws {
 $testRoot = Join-Path ([IO.Path]::GetTempPath()) "gitlab-mcp-join-$([guid]::NewGuid())"
 $configDirectory = Join-Path $testRoot ".codex"
 $configPath = Join-Path $configDirectory "config.toml"
-$mcpUrl = "https://mcp.example.test/mcp"
-$fakeToken = "join-test-token-$([guid]::NewGuid())"
+$mcpUrl = "https://mcp.example.test/mcp/gitlab-deployment"
 
 try {
     # URL guard: example address, plain HTTP, and embedded quotes are all rejected.
-    Assert-Throws { Assert-McpUrl "https://mcp.internal.company.com/mcp" } "Example URL was accepted"
-    Assert-Throws { Assert-McpUrl "http://mcp.example.test/mcp" } "Plain HTTP URL was accepted"
+    Assert-Throws { Assert-McpUrl "https://mcp.internal.company.com/mcp/gitlab-deployment" } "Example URL was accepted"
+    Assert-Throws { Assert-McpUrl "http://mcp.example.test/mcp/gitlab-deployment" } "Plain HTTP URL was accepted"
     Assert-Throws { Assert-McpUrl "https://mcp.example.test/`"bad" } "URL with a quote was accepted"
-    Assert-Throws { Set-McpConfig -McpUrl "http://mcp.example.test/mcp" -ConfigDirectory $configDirectory } "Set-McpConfig accepted a plain HTTP URL"
+    Assert-Throws { Set-McpConfig -McpUrl "http://mcp.example.test/mcp/gitlab-deployment" -ConfigDirectory $configDirectory } "Set-McpConfig accepted a plain HTTP URL"
     if (Test-Path -LiteralPath $configDirectory) {
         throw "A rejected URL still created the config directory"
     }
@@ -61,8 +60,7 @@ command = "node"
 args = ["old/server.mjs"]
 
 [mcp_servers.gitlab_deployment]
-url = "https://old.example.test/mcp"
-bearer_token_env_var = "GitLabAccessToken"
+url = "https://old.example.test/mcp/gitlab-deployment"
 
 [features]
 example = true
@@ -94,8 +92,8 @@ example = true
     if ($config.Contains("[mcp_servers.standard_smart_office_gitlab]")) {
         throw "Legacy MCP configuration was not removed"
     }
-    if (-not $config.Contains('bearer_token_env_var = "GitLabAccessToken"')) {
-        throw "Per-user bearer token forwarding is missing"
+    if ($config -match "(?m)^.*env_.*=") {
+        throw "Client credential configuration is still present"
     }
     if (-not $config.Contains('default_tools_approval_mode = "writes"')) {
         throw "Write approval mode is missing"
@@ -112,25 +110,15 @@ example = true
         throw "Managed MCP configuration is not idempotent"
     }
 
-    # Token handling: process-scoped save for the test, never the user scope, never the config file.
-    Save-GitLabToken -Token $fakeToken -Target "Process"
-    if ([Environment]::GetEnvironmentVariable("GitLabAccessToken", "Process") -ne $fakeToken) {
-        throw "Token was not saved to the requested scope"
-    }
-    if ([Environment]::GetEnvironmentVariable("GitLabAccessToken", "User") -eq $fakeToken) {
-        throw "Test leaked the token into the user environment"
-    }
-
-    Set-McpConfig -McpUrl $mcpUrl -ConfigDirectory $configDirectory
+    Invoke-Onboarding -McpUrl $mcpUrl -ConfigDirectory $configDirectory | Out-Null
     $config = [IO.File]::ReadAllText($configPath)
-    if ($config.Contains($fakeToken)) {
-        throw "Token was written into the Codex configuration"
+    if ($config -match "(?m)^.*env_.*=") {
+        throw "Onboarding wrote a client credential configuration"
     }
 
     Write-Output "ok: join script config update verified"
 }
 finally {
-    [Environment]::SetEnvironmentVariable("GitLabAccessToken", $null, "Process")
     if ((Split-Path $testRoot -Leaf) -like "gitlab-mcp-join-*") {
         Remove-Item -LiteralPath $testRoot -Recurse -Force -ErrorAction SilentlyContinue
     }

@@ -1,103 +1,64 @@
 # GitLab Deployment MCP
 
-这是一个供 Codex 使用的本地 GitLab MCP 服务，通过 Streamable HTTP 提供（默认 `http://127.0.0.1:8932/mcp`）。安装一次后，当前用户的所有新 Codex 会话都可以使用它，不绑定任何项目目录。
+一个供 Codex 使用的 GitLab 部署 MCP 服务。它通过 Streamable HTTP 提供项目、Pipeline 和 Job 查询；部署仍须经过项目范围确认、SHA 核对和单独写操作批准。
 
-它可以查询 GitLab 项目、pipeline 和 job，并在用户单独确认后触发手动部署任务。
+认证只有 GitLab OAuth：首次调用时 Codex 打开浏览器，用户登录 GitLab 并授权。用户不需要创建、复制或保存个人访问凭据。
 
-## 接入团队已部署的服务（同事）
+## 接入已部署服务
 
-如果运维已把 MCP 部署到内网服务器，**不需要克隆本仓库，也不需要 Node/Yarn**。创建好个人 GitLab Token（勾选 `api` scope）后，运行一行命令（URL 以运维通知为准）：
+运维部署 OAuth 服务后，Windows 和 macOS 用户只需运行托管的接入脚本：
 
 ```powershell
-# Windows（PowerShell）
-irm https://mcp.internal.company.com/join.ps1 | iex
+irm https://<真实服务地址>/join.ps1 | iex
 ```
 
 ```bash
-# macOS（终端）
-curl -fsSL https://mcp.internal.company.com/join.sh | bash
+curl -fsSL https://<真实服务地址>/join.sh | bash
 ```
 
-脚本会隐藏输入 Token 并安全保存（Windows 存为用户环境变量；macOS 存入登录钥匙串，并在 `~/.zshrc` 追加一行从钥匙串取值的 `export`）、更新用户级 `~/.codex/config.toml`（保留其他配置，可重复运行）。完成后 macOS 同事需新开一个终端，然后完全退出并重新打开 Codex（Codex 需从终端启动）。详见 [docs/deployment.md](docs/deployment.md) 的“同事接入”一节。
+脚本只写入 MCP URL、工具白名单和写操作审批配置。完全重启 Codex 后，首次使用 GitLab MCP 即会打开 GitLab 授权页。示例域名 `mcp.internal.company.com` 不是可用服务地址。
 
-## 在自己电脑上运行 MCP 服务
+## 自行部署服务
 
-开发者或运维本机部署（Windows 安装程序 / macOS 手动配置 / 启动与重启）见 [docs/self-hosting.md](docs/self-hosting.md)。接入团队服务时不需要。
+服务端必须配置一个 GitLab OAuth App、HTTPS 域名，以及：
 
-## 第一次使用
+```text
+GitLabMcpPublicUrl
+GitLabOAuthClientId
+GitLabOAuthClientSecret
+GitLabOAuthStorePath
+```
 
-先确认 MCP 服务正在运行（`yarn start`），Codex 通过配置中的 `url` 连接它。
+详细步骤见 [本机运行](docs/self-hosting.md) 和 [内网部署](docs/deployment.md)。
 
-可以按下面的顺序对 Codex 说：
+## 首次使用
 
-1. `列出 ksa/standard-smart-office 组中的项目`
-2. `这个对话只允许操作 ksa/standard-smart-office/frontend/std-smart-office-portal`
-3. `查看这个项目 release 分支最近的 pipelines`
-4. `查看 pipeline 12345 中的 jobs`
+完成接入后，可以在新 Codex 对话中依次提出：
 
-第二步会要求确认仓库范围。确认后，Codex 会自动保存并在后续调用中传递 `scope_token`，用户不需要复制它。新对话会重新确认，也可以在同一对话中重新选择仓库。
+1. `列出 <GitLab 组路径> 组中的项目`
+2. `本次对话只允许操作 <完整项目路径>`
+3. `查看这个项目最近的 pipelines`
+4. `查看 pipeline <ID> 中的 jobs`
 
-部署时，可以说：
-
-`部署 pipeline 12345 中的 deploy to jv 26 env`
-
-Codex 必须先展示项目、部署任务、ref、pipeline ID 和提交 SHA，并再次请求批准。只有名称完全匹配的 `manual` job 才能启动。
-
-## 可用工具
-
-| 工具 | 说明 |
-| --- | --- |
-| `configure_project_scope` | 确认本次对话允许操作的仓库 |
-| `list_group_projects` | 按 GitLab 组查找项目 |
-| `list_pipelines` | 查看确认范围内项目的 pipelines |
-| `list_pipeline_jobs` | 查看指定 pipeline 中的 jobs |
-| `play_deploy_job` | 触发用户批准的手动部署 job |
-
-## 安全边界
-
-- 项目操作前必须确认完整项目路径；
-- 后续调用只能访问该次确认范围中的项目；
-- 部署任务必须是所选 pipeline 中名称完全匹配的 `manual` job；
-- 部署前必须核对项目、任务、ref、pipeline ID 和提交 SHA；
-- 部署必须再次获得写操作批准；
-- Token 按请求以 `Authorization: Bearer` 头传入，服务不保存 Token，也不应把 Token 写入仓库或 Codex 配置。
+部署前，Codex 必须展示项目、Job、分支、Pipeline ID 和 SHA；只有用户再次批准后才会执行手动 Job。
 
 ## 开发验证
 
-默认测试不访问 GitLab：
-
 ```bash
+yarn install --frozen-lockfile
 yarn test
 ```
 
-只读实时验证需要当前进程已经设置 `GitLabAccessToken`：
+测试使用假 GitLab 完整覆盖 OAuth 授权码、PKCE、刷新令牌和 MCP Bearer 转发，不访问真实 GitLab，也不触发部署。
 
-```bash
-export GitLabSmokeProjectPath="company/group/project"
-export GitLabSmokeDeployJobName="deploy to test env"
-export GitLabSmokeRef="release" # 可选
-yarn test:live
-```
-
-实时测试不会触发部署。
-
-## 项目结构
+## 目录
 
 ```text
-install.ps1             Windows 全局安装程序（本机运行服务）
-join.ps1                Windows 同事一行接入已部署服务
-join.sh                 macOS 同事一行接入已部署服务（Keychain 存储 Token）
-src/server.mjs          MCP 服务
-src/oauth.mjs           可选 OAuth broker（GitLab 账号登录接入，免 PAT）
-tests/config.test.mjs   MCP 配置测试
-tests/oauth.test.mjs    OAuth broker 端到端测试（假上游 GitLab，零外网）
-tests/install.test.ps1  Windows 安装程序测试
-tests/join.test.ps1     Windows 一行接入脚本测试
-tests/join.test.sh      macOS 一行接入脚本测试（可注入 Keychain stub）
-tests/smoke.mjs         GitLab 只读冒烟测试
-docs/                   项目维护文档
+install.ps1             Windows 自行部署安装脚本
+join.ps1                Windows OAuth 接入脚本
+join.sh                 macOS OAuth 接入脚本
+src/server.mjs          MCP HTTP 服务
+src/oauth.mjs           GitLab OAuth broker
+tests/                  安装、接入、HTTP 与 OAuth 测试
+docs/                   运维与使用文档
 ```
-
-## 开源协议
-
-本项目以 [MIT License](LICENSE) 发布。

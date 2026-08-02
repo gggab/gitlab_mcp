@@ -9,7 +9,7 @@ import { createOAuthBroker } from "./oauth.mjs";
 
 const API_URL =
   process.env.GitLabApiUrl ?? "https://gitlab.sz.sensetime.com/api/v4";
-export const MCP_PATH = "/mcp";
+export const MCP_PATH = "/mcp/gitlab-deployment";
 export const DEFAULT_HOST = "127.0.0.1";
 export const DEFAULT_PORT = 8932;
 const HOST_ENV = "GitLabMcpHost";
@@ -40,14 +40,19 @@ const changesScope = {
   openWorldHint: false,
 };
 
-function bearerToken(extra) {
-  const header = extra?.requestInfo?.headers?.["authorization"];
+function readBearerAccessToken(header) {
   const value = Array.isArray(header) ? header[0] : header;
   const match = typeof value === "string" && /^Bearer\s+(\S+)$/i.exec(value);
-  if (!match) {
-    throw new Error("Request must carry an Authorization: Bearer <GitLab token> header");
+  return match?.[1];
+}
+
+function bearerToken(extra) {
+  const header = extra?.requestInfo?.headers?.["authorization"];
+  const accessToken = readBearerAccessToken(header);
+  if (!accessToken) {
+    throw new Error("Request must carry an Authorization: Bearer <OAuth access token> header");
   }
-  return match[1];
+  return accessToken;
 }
 
 function gitlabPath(value, label) {
@@ -80,8 +85,7 @@ async function request(path, gitlabToken, init = {}) {
     ...init,
     headers: {
       Accept: "application/json",
-      // Bearer works for both personal access tokens and OAuth access tokens,
-      // so the same path serves PAT and OAuth-brokered clients.
+      // The OAuth broker issues the bearer access token used for GitLab API calls.
       Authorization: `Bearer ${gitlabToken}`,
       ...init.headers,
     },
@@ -450,10 +454,13 @@ function writeJsonRpcError(res, status, message) {
 }
 
 export function startHttpServer({ host, port, oauth } = {}) {
+  if (!oauth) {
+    throw new Error("OAuth broker configuration is required");
+  }
   const listenHost = host ?? process.env[HOST_ENV] ?? DEFAULT_HOST;
   const listenPort = port ?? Number(process.env[PORT_ENV] ?? DEFAULT_PORT);
   const transports = new Map();
-  const broker = oauth ? createOAuthBroker(oauth) : undefined;
+  const broker = createOAuthBroker({ ...oauth, mcpPath: MCP_PATH });
 
   const httpServer = createHttpServer((req, res) => {
     handleRequest(req, res).catch((error) => {
@@ -465,7 +472,7 @@ export function startHttpServer({ host, port, oauth } = {}) {
   async function handleRequest(req, res) {
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
 
-    if (broker && (await broker.handleRequest(req, res, url))) {
+    if (await broker.handleRequest(req, res, url)) {
       return;
     }
 
@@ -474,13 +481,11 @@ export function startHttpServer({ host, port, oauth } = {}) {
       return;
     }
 
-    const authorization = req.headers.authorization;
-    if (typeof authorization !== "string" || !/^Bearer\s+\S+$/i.test(authorization)) {
-      const authenticate = broker
-        ? `Bearer resource_metadata="${broker.resourceMetadataUrl}"`
-        : "Bearer";
+    const accessToken = readBearerAccessToken(req.headers.authorization);
+    if (!accessToken || !broker.hasIssuedAccessToken(accessToken)) {
+      const authenticate = `Bearer resource_metadata="${broker.resourceMetadataUrl}"`;
       res.writeHead(401, { "www-authenticate": authenticate });
-      writeJsonRpcError(res, 401, "Authorization: Bearer <GitLab token> is required");
+      writeJsonRpcError(res, 401, "Authorization: Bearer <OAuth access token> is required");
       return;
     }
 
@@ -535,14 +540,10 @@ function oauthConfigFromEnv() {
     "GitLabOAuthClientId",
     "GitLabOAuthClientSecret",
   ];
-  const present = required.filter((name) => process.env[name]);
-  if (present.length === 0) {
-    return undefined;
-  }
-  if (present.length !== required.length) {
-    const missing = required.filter((name) => !process.env[name]);
+  const missing = required.filter((name) => !process.env[name]);
+  if (missing.length) {
     throw new Error(
-      `OAuth broker is partially configured; missing: ${missing.join(", ")}`,
+      `OAuth broker configuration is required; missing: ${missing.join(", ")}`,
     );
   }
   return {
@@ -559,9 +560,7 @@ export async function main() {
   const oauth = oauthConfigFromEnv();
   const { host, port } = await startHttpServer({ oauth });
   console.log(`GitLab deployment MCP listening on http://${host}:${port}${MCP_PATH}`);
-  if (oauth) {
-    console.log("OAuth broker enabled (GitLab account sign-in for MCP clients)");
-  }
+  console.log("OAuth broker enabled (GitLab account sign-in for MCP clients)");
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {

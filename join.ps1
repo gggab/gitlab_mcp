@@ -2,7 +2,7 @@
 param(
     # Example address only. The deployer MUST replace this with the real HTTPS URL
     # before hosting the script; the script refuses to run while it is unchanged.
-    [string]$McpUrl = "https://mcp.internal.company.com/mcp"
+    [string]$McpUrl = "https://mcp.internal.company.com/mcp/gitlab-deployment"
 )
 
 $ErrorActionPreference = "Stop"
@@ -10,8 +10,7 @@ Set-StrictMode -Version Latest
 
 $script:ServerName = "gitlab_deployment"
 $script:LegacyServerName = "standard_smart_office_gitlab"
-$script:TokenName = "GitLabAccessToken"
-$script:ExampleMcpUrl = "https://mcp.internal.company.com/mcp"
+$script:ExampleMcpUrl = "https://mcp.internal.company.com/mcp/gitlab-deployment"
 
 function Assert-McpUrl {
     [CmdletBinding()]
@@ -45,7 +44,6 @@ function Set-McpConfig {
     $block = @"
 [mcp_servers.$($script:ServerName)]
 url = "$McpUrl"
-bearer_token_env_var = "$($script:TokenName)"
 enabled_tools = [
   "configure_project_scope",
   "list_group_projects",
@@ -80,61 +78,17 @@ enabled = true
     Write-Output "Configured Codex MCP in $configPath"
 }
 
-function Read-GitLabToken {
-    $secureToken = Read-Host "GitLab Access Token" -AsSecureString
-    if ($secureToken.Length -eq 0) {
-        throw "GitLab Access Token is required"
-    }
-
-    $pointer = [Runtime.InteropServices.Marshal]::SecureStringToBSTR($secureToken)
-    try {
-        return [Runtime.InteropServices.Marshal]::PtrToStringBSTR($pointer)
-    }
-    finally {
-        [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer)
-    }
-}
-
-function Save-GitLabToken {
+function Invoke-Onboarding {
     [CmdletBinding()]
     param(
-        [Parameter(Mandatory = $true)]
-        [string]$Token,
-        [ValidateSet("Process", "User")]
-        [string]$Target = "User"
+        [string]$McpUrl = $script:ExampleMcpUrl,
+        [string]$ConfigDirectory = (Join-Path ([Environment]::GetFolderPath("UserProfile")) ".codex")
     )
 
-    [Environment]::SetEnvironmentVariable($script:TokenName, $Token, "Process")
-    [Environment]::SetEnvironmentVariable($script:TokenName, $Token, $Target)
-}
-
-function Get-ExistingToken {
-    $token = [Environment]::GetEnvironmentVariable($script:TokenName, "Process")
-    if (-not $token) {
-        $token = [Environment]::GetEnvironmentVariable($script:TokenName, "User")
-    }
-    return $token
-}
-
-function Invoke-Onboarding {
-    Assert-McpUrl $McpUrl
-
-    $token = Get-ExistingToken
-    if ($token) {
-        Write-Output "GitLabAccessToken is already configured for this user; keeping the existing value."
-    }
-    else {
-        $token = Read-GitLabToken
-        Save-GitLabToken -Token $token
-        Write-Output "Saved GitLabAccessToken as a user environment variable. It is never written to any file."
-    }
-    $token = $null
-
-    Set-McpConfig -McpUrl $McpUrl
-
-    Write-Output "Onboarding complete. Quit Codex completely and reopen it to load the MCP server."
+    Set-McpConfig -McpUrl $McpUrl -ConfigDirectory $ConfigDirectory
+    Write-Output "Onboarding complete. Quit Codex completely and reopen it to authorize GitLab in the browser."
 }
 
 if ($MyInvocation.InvocationName -ne ".") {
-    Invoke-Onboarding
+    Invoke-Onboarding -McpUrl $McpUrl
 }
