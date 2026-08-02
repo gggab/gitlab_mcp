@@ -1,36 +1,47 @@
 # 内网部署手册
 
-把 GitLab Deployment MCP 部署到公司内网服务器，供团队成员的 Codex 通过 Streamable HTTP 接入。
+将 GitLab Deployment MCP 部署到公司内网，供 Codex 通过 HTTPS 和 GitLab OAuth 使用。
 
 ## 架构
 
 ```text
-同事 Codex / Kimi ──HTTPS──> nginx（443，终结 TLS，可选 SSO）
-                                │ 透传 Authorization 头
-                                ▼
-                          MCP 服务（127.0.0.1:8932，不对外）
-                          ├─ /mcp        Bearer Token 透传（PAT 或 OAuth token）
-                          └─ /oauth/*    可选 OAuth broker（GitLab 账号登录，免 PAT）
-                                │ Authorization: Bearer = 当次请求的 Token
-                                ▼
-                          公司 GitLab（gitlab.sz.sensetime.com）
+Codex -- HTTPS --> nginx (443) --> MCP service (127.0.0.1:8932) --> GitLab
+                              |-- /mcp/gitlab-deployment
+                              |-- /oauth/
+                              `-- /.well-known/
 ```
 
-关键设计：
+用户通过 Codex 的 OAuth 登录命令打开 GitLab 登录页。授权后的 access token 随请求转发给 GitLab API；服务仅在内存中保存带过期时间的哈希，用于拒绝未经 OAuth broker 签发的 Bearer 值。服务重启后，Codex 会刷新或重新授权。
 
-- **服务不保存 Token**：每个请求必须携带 `Authorization: Bearer <个人 GitLab Token>`，服务把它透传给 GitLab API，审计记录归属到实际调用人。
-- **只能单实例运行**：MCP 会话和 scope 授权都在进程内存中，不能多副本，不能配负载均衡。
-- **服务重启即失效**：所有会话和 scope 授权清空，用户下次操作时重新 `configure_project_scope` 即可，这是安全契约的一部分。
+## 前提
 
-## 前提条件
+- 可访问公司 GitLab 的 Linux 服务器；
+- Node.js 20+、Yarn 1.x、nginx；
+- HTTPS 域名和证书，例如 `mcp.example.com`；
+- 一个由平台团队管理的 GitLab Group-owned OAuth Application；
+- 该 Application 的回调地址为 `https://mcp.example.com/oauth/callback`，授权 `api` scope。
 
-- 内网 Linux 服务器，能访问 `https://gitlab.sz.sensetime.com`
-- Node.js 20 或更高版本、Yarn 1.x
-- 项目代码已从公司私有仓克隆到服务器（本文以 `/opt/GitLabMCP` 为例）
-- 一个内网域名（本文以 `mcp.internal.company.com` 为例）和对应 TLS 证书
--  nginx 已安装
+## 1. 创建 GitLab Group-owned OAuth Application
 
-## 1. 部署服务
+OAuth Application 是服务端的客户端身份，不是某位员工的 GitLab 凭据。生产环境不要用个人账号创建；在平台或运维组中创建，并由该组 Owner 管理。
+
+1. 进入承载 MCP 的 GitLab Group，例如 `platform`；
+2. 左侧选择 **Settings > Applications**；
+3. 创建 Application，填写：
+
+| 字段 | 值 |
+| --- | --- |
+| Name | `GitLab Deployment MCP` |
+| Redirect URI | `https://mcp.example.com/oauth/callback` |
+| Scopes | `api` |
+
+4. 保存后，将 **Application ID** 和 **Secret** 交给服务部署者。
+
+每位 Codex 用户仍会用自己的 GitLab 账号完成 OAuth 登录，服务对 GitLab API 的操作沿用该用户原有权限。Application Secret 只用于 MCP 服务向 GitLab 交换授权码，绝不下发给用户或写入接入脚本。
+
+若目标 Group 没有 **Settings > Applications**，请由 Group Owner 或 GitLab 管理员创建；不要为此改用个人 Application。
+
+## 2. 安装服务
 
 ```bash
 cd /opt/GitLabMCP
@@ -38,33 +49,52 @@ yarn install --frozen-lockfile
 yarn test
 ```
 
-创建专用运行账户并授权目录：
+创建专用运行账户并授予目录权限：
 
 ```bash
 sudo useradd --system --no-create-home gitlab-mcp
 sudo chown -R gitlab-mcp:gitlab-mcp /opt/GitLabMCP
+sudo install -d -o gitlab-mcp -g gitlab-mcp /var/lib/gitlab-mcp
 ```
 
-## 2. systemd 托管
+## 3. 配置服务配置与 systemd
+
+将 OAuth Application 信息放入独立的 root 管理文件，而不是 unit 文件、nginx 配置或仓库：
+
+```bash
+sudo install -d -m 0750 -o root -g gitlab-mcp /etc/gitlab-mcp
+sudo install -m 0640 -o root -g gitlab-mcp /dev/null /etc/gitlab-mcp/gitlab-mcp.env
+sudoedit /etc/gitlab-mcp/gitlab-mcp.env
+```
+
+填写以下内容。`GitLabBaseUrl` 是 GitLab 实例根地址，不包含 `/api/v4`。
+
+```ini
+GitLabMcpHost=127.0.0.1
+GitLabMcpPort=8932
+GitLabMcpPublicUrl=https://mcp.example.com
+GitLabBaseUrl=https://gitlab.example.com
+GitLabOAuthClientId=<Group-owned Application ID>
+GitLabOAuthClientSecret=<Group-owned Application Secret>
+GitLabOAuthStorePath=/var/lib/gitlab-mcp/oauth-clients.json
+```
 
 创建 `/etc/systemd/system/gitlab-mcp.service`：
 
 ```ini
 [Unit]
 Description=GitLab Deployment MCP
-After=network.target
+Wants=network-online.target
+After=network-online.target
 
 [Service]
 Type=simple
 User=gitlab-mcp
 WorkingDirectory=/opt/GitLabMCP
-Environment=GitLabMcpHost=127.0.0.1
-Environment=GitLabMcpPort=8932
+EnvironmentFile=/etc/gitlab-mcp/gitlab-mcp.env
 ExecStart=/usr/bin/node src/server.mjs
 Restart=on-failure
 RestartSec=5
-
-# 加固项
 NoNewPrivileges=true
 ProtectSystem=strict
 ProtectHome=true
@@ -74,68 +104,37 @@ PrivateTmp=true
 WantedBy=multi-user.target
 ```
 
-注意：
-
-- `GitLabMcpHost` 保持 `127.0.0.1`，只允许 nginx 本机转发，8932 端口不直接对外。
-- **不要**在 unit 中配置 `GitLabAccessToken`——服务不读它，Token 由每个请求携带。
-- `ExecStart` 中的 node 路径用 `command -v node` 的实际输出替换。
-- 启用 OAuth broker（见第 5.5 节）时再追加以下环境变量；三者必须同时配置，缺一个服务会拒绝启动：
-
-```ini
-Environment=GitLabMcpPublicUrl=https://mcp.internal.company.com
-Environment=GitLabOAuthClientId=<GitLab OAuth App 的 Application ID>
-Environment=GitLabOAuthClientSecret=<GitLab OAuth App 的 Secret>
-Environment=GitLabOAuthStorePath=/var/lib/gitlab-mcp/oauth-clients.json
-```
-
-启用并启动：
+前三个 OAuth 变量（`GitLabMcpPublicUrl`、`GitLabOAuthClientId`、`GitLabOAuthClientSecret`）缺少任意一个，服务会拒绝启动。`GitLabOAuthStorePath` 只保存 Codex 的动态客户端注册记录，不保存任何用户 GitLab 凭据。
 
 ```bash
 sudo systemctl daemon-reload
 sudo systemctl enable --now gitlab-mcp
 systemctl status gitlab-mcp
-journalctl -u gitlab-mcp -f   # 应看到 listening on http://127.0.0.1:8932/mcp
 ```
 
-本机验证（此时无 Token 应返回 401）：
-
-```bash
-curl -i -X POST http://127.0.0.1:8932/mcp \
-  -H "Content-Type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}'
-# 期望：401 Unauthorized
-```
-
-## 3. nginx 反向代理
+## 4. 配置 nginx
 
 创建 `/etc/nginx/conf.d/gitlab-mcp.conf`：
 
 ```nginx
 server {
     listen 443 ssl;
-    server_name mcp.internal.company.com;
+    server_name mcp.example.com;
 
-    ssl_certificate     /etc/nginx/certs/mcp.internal.company.com.pem;
-    ssl_certificate_key /etc/nginx/certs/mcp.internal.company.com.key;
+    ssl_certificate     /etc/nginx/certs/mcp.example.com.pem;
+    ssl_certificate_key /etc/nginx/certs/mcp.example.com.key;
 
-    location /mcp {
+    location = /mcp/gitlab-deployment {
         proxy_pass http://127.0.0.1:8932;
         proxy_http_version 1.1;
-
-        # 必须透传：用户的 GitLab Token 就在这个头里
         proxy_set_header Authorization $http_authorization;
         proxy_set_header Host $host;
-
-        # MCP 使用 SSE 流式响应，必须关闭缓冲
         proxy_buffering off;
         proxy_cache off;
-
-        # 长连接
         proxy_read_timeout 3600s;
         proxy_send_timeout 3600s;
     }
 
-    # 启用 OAuth broker（第 5.5 节）时追加：登录流程走这两个前缀
     location /oauth/ {
         proxy_pass http://127.0.0.1:8932;
         proxy_http_version 1.1;
@@ -151,231 +150,91 @@ server {
 }
 ```
 
-三个配置缺一不可：
-
-1. `proxy_set_header Authorization` —— 默认 nginx 会透传，但显式写出以防全局配置覆盖；丢了它所有请求都会 401。
-2. `proxy_buffering off` —— 否则 SSE 事件被缓冲，MCP 响应会卡住或超时。
-3. 长 `proxy_read_timeout` —— MCP 是长连接协议。
-
-可选：在 nginx 前再接公司 SSO（如 oauth2-proxy 或统一网关），作为 Bearer Token 之外的第二层门禁。
-
-### 静态托管一行安装脚本
-
-同事的一行安装命令（见第 5 节）依赖把仓库里的 `join.ps1`（Windows）和 `join.sh`（macOS）暴露到可信 HTTPS 地址。只暴露这两个静态文件，不要代理整个仓库目录：
-
-1. 渲染托管副本，把示例 URL 替换为真实服务地址（两个脚本在 URL 未替换时都会拒绝运行）：
-
-```bash
-sudo install -d /srv/gitlab-mcp-public
-sed 's|https://mcp.internal.company.com/mcp|https://<真实域名>/mcp|' \
-  /opt/GitLabMCP/join.ps1 | sudo tee /srv/gitlab-mcp-public/join.ps1 > /dev/null
-sed 's|https://mcp.internal.company.com/mcp|https://<真实域名>/mcp|' \
-  /opt/GitLabMCP/join.sh | sudo tee /srv/gitlab-mcp-public/join.sh > /dev/null
-# <真实域名> 替换为上面 server_name 使用的域名
-```
-
-2. 在同一个 server 块中追加：
-
-```nginx
-    # 一行安装脚本：只暴露这两个静态文件
-    location = /join.ps1 {
-        root /srv/gitlab-mcp-public;
-        default_type text/plain;
-    }
-    location = /join.sh {
-        root /srv/gitlab-mcp-public;
-        default_type text/plain;
-    }
-```
-
-脚本内容不含任何秘密，可以安全公开；真正的门禁仍是 `/mcp` 的 Bearer Token。
-
-重载并验证：
+这三个路由都是 OAuth 流程必需项。8932 端口只监听 `127.0.0.1`，不要暴露到网络。
 
 ```bash
 sudo nginx -t && sudo systemctl reload nginx
-
-curl -i -X POST https://mcp.internal.company.com/mcp \
-  -H "Content-Type: application/json" \
-  -H "Accept: application/json, text/event-stream" \
-  -H "Authorization: Bearer <你的 GitLab Token>" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-03-26","capabilities":{},"clientInfo":{"name":"deploy-check","version":"0"}}}'
-# 期望：200 + mcp-session-id 响应头 + SSE 格式的 initialize 结果
-
-curl -s https://mcp.internal.company.com/join.ps1 | head -5
-curl -s https://mcp.internal.company.com/join.sh | head -5
-# 期望：脚本内容，且其中的默认 URL 已是真实地址（否则回到第 1 步重新渲染）
+curl -s https://mcp.example.com/.well-known/oauth-authorization-server
 ```
 
-## 4. 防火墙
+最后一个命令应返回 OAuth 元数据 JSON。
 
-- 只对外开放 **443**
-- **8932 不对外**：确认安全组 / iptables 没有放行该端口
+## 5. 托管接入脚本
+
+将仓库中的 `join.ps1` 和 `join.sh` 渲染为真实 MCP 地址后，作为静态文件暴露：
 
 ```bash
-# 从另一台机器验证 8932 不可达
-curl -m 3 http://<服务器IP>:8932/mcp   # 期望：连接超时或拒绝
+sudo install -d /srv/gitlab-mcp-public
+sed 's|https://mcp.internal.company.com/mcp/gitlab-deployment|https://mcp.example.com/mcp/gitlab-deployment|' /opt/GitLabMCP/join.ps1 | sudo tee /srv/gitlab-mcp-public/join.ps1 > /dev/null
+sed 's|https://mcp.internal.company.com/mcp/gitlab-deployment|https://mcp.example.com/mcp/gitlab-deployment|' /opt/GitLabMCP/join.sh | sudo tee /srv/gitlab-mcp-public/join.sh > /dev/null
 ```
 
-## 5. 同事接入
+在同一个 nginx `server` 中追加：
 
-前置条件（运维）：已按第 3 节把 `join.ps1` / `join.sh` 静态托管到可信 HTTPS 地址，并把脚本默认 URL 替换为真实地址。`mcp.internal.company.com` 只是示例，不要把示例链接直接发给同事。同事侧**不需要**克隆仓库、安装 Node/Yarn 或手改配置文件。
+```nginx
+location = /join.ps1 {
+    root /srv/gitlab-mcp-public;
+    default_type text/plain;
+}
 
-### 5.1 一行安装（Windows，推荐）
+location = /join.sh {
+    root /srv/gitlab-mcp-public;
+    default_type text/plain;
+}
+```
 
-同事在 GitLab 创建 Personal Access Token（勾选 `api` scope）后，只需在 PowerShell 中运行一行（URL 以运维通知为准）：
+## 6. 团队接入与 OAuth 登录
+
+Windows：
 
 ```powershell
-irm https://mcp.internal.company.com/join.ps1 | iex
+irm https://mcp.example.com/join.ps1 | iex
 ```
 
-脚本会自动完成：
-
-1. 提示**隐藏输入**个人 GitLab Token（输入时看不到明文），保存为当前用户环境变量 `GitLabAccessToken`；Token 不写入配置文件、不写入仓库、不回显；
-2. 更新用户级 `~/.codex/config.toml` 中的 `gitlab_deployment` MCP 段，保留文件里的其他配置；
-3. 可重复运行：已有 Token 不重复询问，MCP 段幂等替换，失败时明确报错退出。
-
-完成后**完全退出并重新打开 Codex**。
-
-写入的配置段保留全部安全契约字段（与手动配置完全一致）：
-
-- `bearer_token_env_var = "GitLabAccessToken"` —— Token 由环境变量传入，不落盘；
-- `enabled_tools` —— 只开放五个受控工具；
-- `default_tools_approval_mode = "writes"` —— 写操作前必须经用户批准；
-- `tool_timeout_sec = 60`。
-
-> 为什么没有直接用 Codex 原生的 `codex mcp add <name> --url ... --bearer-token-env-var ...`：该命令只会写入 `url` 和 `bearer_token_env_var` 两个字段（已实测验证），无法表达 `enabled_tools`、`default_tools_approval_mode`、`tool_timeout_sec` 这些安全契约字段，因此脚本直接写入完整配置段，效果等价于手动配置。
-
-### 5.2 验证接入
-
-完全退出并重新打开 Codex，然后依次说：
-
-1. `列出 ksa/standard-smart-office 组中的项目`
-2. `这个对话只允许操作 <完整项目路径>`（确认后获得 scope）
-3. `查看这个项目最近的 pipelines`
-
-能查到 pipelines 即接入成功。
-
-### 5.3 手动配置（排障/备用）
-
-一行命令不可用（例如公司策略禁止远程脚本）时，按原手动方式完成同样的两件事：
-
-1. 把 Token 设为本人用户环境变量：`setx GitLabAccessToken "<token>"`（新开终端生效）；
-2. 编辑本人 `~/.codex/config.toml`，追加（不要覆盖原有配置）：
-
-```toml
-[mcp_servers.gitlab_deployment]
-url = "https://mcp.internal.company.com/mcp"
-bearer_token_env_var = "GitLabAccessToken"
-enabled_tools = [
-  "configure_project_scope",
-  "list_group_projects",
-  "list_pipelines",
-  "list_pipeline_jobs",
-  "play_deploy_job",
-]
-default_tools_approval_mode = "writes"
-tool_timeout_sec = 60
-enabled = true
-```
-
-Token 不写入配置文件，由 Codex 从环境变量读取后以 Bearer 头转发。然后完全退出并重新打开 Codex，按 5.2 验证。
-
-### 5.4 macOS
-
-同事在 GitLab 创建 Personal Access Token（勾选 `api` scope）后，在终端运行一行（URL 以运维通知为准）：
+macOS：
 
 ```bash
-curl -fsSL https://mcp.internal.company.com/join.sh | bash
+curl -fsSL https://mcp.example.com/join.sh | bash
 ```
 
-脚本会自动完成（与 Windows 的 `join.ps1` 一一对应）：
+脚本只更新用户级 Codex MCP 配置，并保留其他配置；不写入 GitLab Token。完全重启 Codex 后，用户在本机执行一次：
 
-1. 提示**隐藏输入**个人 GitLab Token（脚本从 `/dev/tty` 读取，`curl | bash` 管道不影响输入），存入登录钥匙串（Keychain，`security add-generic-password`，加密落盘、重启持久）；Token 不以明文写入任何文件；
-2. 向 `~/.zshrc` 追加一行从钥匙串动态取值的 `export`（可用 `JOIN_SHELL_PROFILE` 改目标文件），新开的终端会把 Token 提供给 Codex 进程；该行带 `# gitlab-mcp-join` 标记，重复运行幂等替换；
-3. 更新用户级 `~/.codex/config.toml` 中的 `gitlab_deployment` MCP 段，保留文件里的其他配置，字段与 5.1 完全一致。
-
-完成后**新开一个终端（或 `source ~/.zshrc`），然后完全退出并重新打开 Codex**。注意 Codex 必须从终端启动（或继承终端环境）才能读到该环境变量。
-
-已知边界：
-
-- `security add-generic-password -w` 只接受命令行参数传值，Token 会在写入瞬间出现在进程参数列表中（与各类 CLI 凭据参数同级风险）；存储本身是加密的登录钥匙串。
-- 重启 macOS 后登录钥匙串随登录自动解锁，新终端即可读取；如果钥匙串被锁定，首次 `security find-generic-password` 会弹系统解锁框。
-- 如果同事此前已用其他方式（如 `launchctl setenv`）设置过 `GitLabAccessToken`，脚本会检测到环境变量并把它转存进钥匙串，保证新终端可继承。
-- GUI 方式启动（Dock / Spotlight）的 Codex 读不到 `~/.zshrc` 里的环境变量，必须从终端启动。
-
-一行命令不可用时，按手动方式完成同样的三件事：
-
-```bash
-security add-generic-password -U -a "$USER" -s GitLabAccessToken -w "<token>"
-echo 'export GitLabAccessToken="$(security find-generic-password -s GitLabAccessToken -w 2>/dev/null)" # gitlab-mcp-join' >> ~/.zshrc
-# 再按 5.3 的 TOML 段编辑 ~/.codex/config.toml
+```powershell
+codex mcp login gitlab_deployment
 ```
 
-### 5.5 OAuth 登录（可选，免 PAT）
+该命令会打开 GitLab 网页，用户以自己的账号登录并授权。完成后再启动或重启 Codex，即可调用 GitLab MCP。
 
-默认的 PAT 方式要求每位同事手动创建 GitLab Token。启用 OAuth broker 后，同事改为在浏览器里用 GitLab 账号授权一次，Kimi / Codex 自动完成后续鉴权，**任何配置文件中都不出现 Token**。Figma MCP 用的就是这套标准流程（DCR + Authorization Code + PKCE）。
+## 7. 上线验收与日常维护
 
-工作方式（`src/oauth.mjs`）：对客户端，服务是标准 OAuth 授权服务器（动态注册 + PKCE）；对 GitLab，服务是**一个**预注册的 OAuth App，回调地址固定指向服务自身——GitLab 不支持动态注册、redirect URI 精确匹配这两个限制都被代理层吸收。Token 端点把 GitLab 签发的 access/refresh token 原样转发给客户端，broker 不保存任何 token 状态；`/mcp` 同时接受 PAT 和 OAuth token，两条路并存。
-
-运维一次性设置：
-
-1. 在 GitLab 创建 user-owned OAuth App（头像 → Edit profile → Applications → Add new application，普通用户即可，无需管理员）：
-   - Redirect URI：`https://<真实域名>/oauth/callback`（必须与 `GitLabMcpPublicUrl` 同源，精确匹配）
-   - Scopes：勾选 `api`
-2. systemd unit 追加 4 个环境变量（见第 2 节），nginx 追加 `/oauth/` 和 `/.well-known/` 两个 location（见第 3 节），重启服务并重载 nginx
-3. 验证：`curl -s https://<真实域名>/.well-known/oauth-authorization-server` 应返回元数据 JSON
-
-同事侧（Kimi CLI 为例）：
+发布前依次验证：
 
 ```bash
-kimi mcp add --transport http --auth oauth gitlab_deployment https://<真实域名>/mcp
-kimi mcp auth gitlab_deployment   # 浏览器打开 GitLab 授权页，确认一次即可
+sudo systemctl status gitlab-mcp
+curl -fsS https://mcp.example.com/.well-known/oauth-authorization-server
+curl -i -X POST https://mcp.example.com/mcp/gitlab-deployment \
+  -H 'Content-Type: application/json' \
+  -d '{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}'
 ```
 
-已知边界：
+前两个命令应成功；最后一条应返回 `401`，并带 `WWW-Authenticate: Bearer resource_metadata=...`。这是未登录时的正常 OAuth 引导响应，不是服务故障。
 
-- **DCR 只接受回环回调**：客户端注册的 `redirect_uris` 必须是 `http://localhost` / `127.0.0.1` / `[::1]`，防止恶意回调注册
-- **客户端注册持久化**：`GitLabOAuthStorePath` 指向的 JSON 文件保存 DCR 记录（不含 secret）；不配则重启后客户端需重新授权
-- **Token 生命周期跟随 GitLab**：OAuth access token 默认 2 小时过期，客户端会自动用 refresh token 换新；broker 无状态，重启不影响已签发的 token
-- **App Secret 只在 systemd 环境变量里**，不进仓库、不进 nginx 配置；泄露时在该 OAuth App 页面 Renew secret
-- PAT 接入方式不受影响，可灰度切换
+使用一个仅含无害手动 Job 的测试项目完成一次用户登录、项目范围确认和 Job 查询。只有在确认写操作保护仍有效后，才允许真实部署项目接入。
 
-## 6. 升级与回滚
+轮换 Application Secret 时，在 GitLab 更新 Secret，再更新 `/etc/gitlab-mcp/gitlab-mcp.env`，然后执行：
 
 ```bash
-cd /opt/GitLabMCP
-sudo -u gitlab-mcp git pull
-sudo -u gitlab-mcp yarn install --frozen-lockfile
-sudo -u gitlab-mcp yarn test
 sudo systemctl restart gitlab-mcp
-# join.ps1 / join.sh 有更新时重新渲染托管副本（命令见第 3 节）
 ```
 
-回滚：`git checkout <上一个 commit>` 后重复上述步骤。重启会清空所有会话，同事侧的 Codex 会自动重连并重新确认 scope，无需通知。
+## 故障排查
 
-## 7. 故障排查
+## 故障排查
 
-| 现象 | 排查 |
+| 现象 | 检查项 |
 | --- | --- |
-| Codex 报 401 | 同事本机 `GitLabAccessToken` 环境变量是否设置；nginx 是否透传了 Authorization 头 |
-| 工具调用报 GitLab API 401 | 该同事的 Token 失效或权限不足，让其在 GitLab 重新生成 |
-| 响应卡住或超时 | nginx `proxy_buffering off` 是否生效；`proxy_read_timeout` 是否够长 |
-| 服务起不来 | `journalctl -u gitlab-mcp`；端口 8932 是否被占用；node 路径是否正确 |
-| 报 "confirm repositories first" | 正常现象：服务重启后 scope 清空，重新 `configure_project_scope` |
-| `irm` 报 TLS 握手错误 | 老版本 PowerShell 默认协议过旧，先执行 `[Net.ServicePointManager]::SecurityProtocol = 'Tls12'` 再重试 |
-| 运行 `join.ps1` / `join.sh` 报 "still the example address" | 运维未替换示例 URL，按第 3 节重新渲染托管副本 |
-| macOS 一行命令后 Codex 仍 401 | 确认已新开终端并从终端启动 Codex；`echo $GitLabAccessToken` 应有值；`security find-generic-password -s GitLabAccessToken -w` 应能取出 Token（弹解锁框属正常） |
-| macOS 同事用 bash 而非 zsh | 让同事重新运行时加 `JOIN_SHELL_PROFILE=~/.bash_profile` 前缀，或按 5.4 手动方式写入对应 profile |
-| 一行命令后被执行策略拦截 | 改用 `powershell -NoProfile -ExecutionPolicy Bypass -Command "irm <URL> \| iex"`，或走 5.3 手动配置 |
-
-## 安全清单
-
-- [ ] 服务只监听 `127.0.0.1:8932`
-- [ ] 对外只有 HTTPS 443
-- [ ] nginx 透传 Authorization 且关闭 SSE 缓冲
-- [ ] systemd unit 中没有配置任何 Token
-- [ ] 每位同事使用自己的 GitLab Token
-- [ ] 仓库和服务器上不出现任何 Token 明文
-- [ ] `join.ps1` / `join.sh` 只以静态文件暴露，示例 URL 已替换为真实地址
-- [ ] （启用 OAuth 时）OAuth App 回调地址与 `GitLabMcpPublicUrl` 同源；App Secret 只在 systemd 环境变量；`/oauth/` 与 `/.well-known/` 已代理
+| 服务无法启动 | `journalctl -u gitlab-mcp`；三个必需 OAuth 变量和 Node 路径是否正确。 |
+| `codex mcp login gitlab_deployment` 没有打开授权页 | 先确认该命令使用的是 `gitlab_deployment` 配置；检查 `/mcp/gitlab-deployment` 的 401 是否带 `WWW-Authenticate`，以及 `/.well-known/` 和 `/oauth/` 是否已代理。 |
+| 浏览器回调失败 | OAuth App 回调地址是否与 `GitLabMcpPublicUrl` 同源且精确匹配。 |
+| 响应卡住或超时 | nginx 是否关闭缓冲并配置足够长的读取超时。 |
+| 提示确认项目范围 | 正常：服务重启后 scope 会清空，重新调用 `configure_project_scope`。 |
