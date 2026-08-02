@@ -5,13 +5,15 @@
 ## 架构
 
 ```text
-同事 Codex ──HTTPS──> nginx（443，终结 TLS，可选 SSO）
-                          │ 透传 Authorization 头
-                          ▼
-                    MCP 服务（127.0.0.1:8932，不对外）
-                          │ PRIVATE-TOKEN = 当次请求的 Bearer Token
-                          ▼
-                    公司 GitLab（gitlab.sz.sensetime.com）
+同事 Codex / Kimi ──HTTPS──> nginx（443，终结 TLS，可选 SSO）
+                                │ 透传 Authorization 头
+                                ▼
+                          MCP 服务（127.0.0.1:8932，不对外）
+                          ├─ /mcp        Bearer Token 透传（PAT 或 OAuth token）
+                          └─ /oauth/*    可选 OAuth broker（GitLab 账号登录，免 PAT）
+                                │ Authorization: Bearer = 当次请求的 Token
+                                ▼
+                          公司 GitLab（gitlab.sz.sensetime.com）
 ```
 
 关键设计：
@@ -77,6 +79,14 @@ WantedBy=multi-user.target
 - `GitLabMcpHost` 保持 `127.0.0.1`，只允许 nginx 本机转发，8932 端口不直接对外。
 - **不要**在 unit 中配置 `GitLabAccessToken`——服务不读它，Token 由每个请求携带。
 - `ExecStart` 中的 node 路径用 `command -v node` 的实际输出替换。
+- 启用 OAuth broker（见第 5.5 节）时再追加以下环境变量；三者必须同时配置，缺一个服务会拒绝启动：
+
+```ini
+Environment=GitLabMcpPublicUrl=https://mcp.internal.company.com
+Environment=GitLabOAuthClientId=<GitLab OAuth App 的 Application ID>
+Environment=GitLabOAuthClientSecret=<GitLab OAuth App 的 Secret>
+Environment=GitLabOAuthStorePath=/var/lib/gitlab-mcp/oauth-clients.json
+```
 
 启用并启动：
 
@@ -123,6 +133,20 @@ server {
         # 长连接
         proxy_read_timeout 3600s;
         proxy_send_timeout 3600s;
+    }
+
+    # 启用 OAuth broker（第 5.5 节）时追加：登录流程走这两个前缀
+    location /oauth/ {
+        proxy_pass http://127.0.0.1:8932;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_buffering off;
+    }
+
+    location /.well-known/ {
+        proxy_pass http://127.0.0.1:8932;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
     }
 }
 ```
@@ -288,6 +312,35 @@ echo 'export GitLabAccessToken="$(security find-generic-password -s GitLabAccess
 # 再按 5.3 的 TOML 段编辑 ~/.codex/config.toml
 ```
 
+### 5.5 OAuth 登录（可选，免 PAT）
+
+默认的 PAT 方式要求每位同事手动创建 GitLab Token。启用 OAuth broker 后，同事改为在浏览器里用 GitLab 账号授权一次，Kimi / Codex 自动完成后续鉴权，**任何配置文件中都不出现 Token**。Figma MCP 用的就是这套标准流程（DCR + Authorization Code + PKCE）。
+
+工作方式（`src/oauth.mjs`）：对客户端，服务是标准 OAuth 授权服务器（动态注册 + PKCE）；对 GitLab，服务是**一个**预注册的 OAuth App，回调地址固定指向服务自身——GitLab 不支持动态注册、redirect URI 精确匹配这两个限制都被代理层吸收。Token 端点把 GitLab 签发的 access/refresh token 原样转发给客户端，broker 不保存任何 token 状态；`/mcp` 同时接受 PAT 和 OAuth token，两条路并存。
+
+运维一次性设置：
+
+1. 在 GitLab 创建 user-owned OAuth App（头像 → Edit profile → Applications → Add new application，普通用户即可，无需管理员）：
+   - Redirect URI：`https://<真实域名>/oauth/callback`（必须与 `GitLabMcpPublicUrl` 同源，精确匹配）
+   - Scopes：勾选 `api`
+2. systemd unit 追加 4 个环境变量（见第 2 节），nginx 追加 `/oauth/` 和 `/.well-known/` 两个 location（见第 3 节），重启服务并重载 nginx
+3. 验证：`curl -s https://<真实域名>/.well-known/oauth-authorization-server` 应返回元数据 JSON
+
+同事侧（Kimi CLI 为例）：
+
+```bash
+kimi mcp add --transport http --auth oauth gitlab_deployment https://<真实域名>/mcp
+kimi mcp auth gitlab_deployment   # 浏览器打开 GitLab 授权页，确认一次即可
+```
+
+已知边界：
+
+- **DCR 只接受回环回调**：客户端注册的 `redirect_uris` 必须是 `http://localhost` / `127.0.0.1` / `[::1]`，防止恶意回调注册
+- **客户端注册持久化**：`GitLabOAuthStorePath` 指向的 JSON 文件保存 DCR 记录（不含 secret）；不配则重启后客户端需重新授权
+- **Token 生命周期跟随 GitLab**：OAuth access token 默认 2 小时过期，客户端会自动用 refresh token 换新；broker 无状态，重启不影响已签发的 token
+- **App Secret 只在 systemd 环境变量里**，不进仓库、不进 nginx 配置；泄露时在该 OAuth App 页面 Renew secret
+- PAT 接入方式不受影响，可灰度切换
+
 ## 6. 升级与回滚
 
 ```bash
@@ -325,3 +378,4 @@ sudo systemctl restart gitlab-mcp
 - [ ] 每位同事使用自己的 GitLab Token
 - [ ] 仓库和服务器上不出现任何 Token 明文
 - [ ] `join.ps1` / `join.sh` 只以静态文件暴露，示例 URL 已替换为真实地址
+- [ ] （启用 OAuth 时）OAuth App 回调地址与 `GitLabMcpPublicUrl` 同源；App Secret 只在 systemd 环境变量；`/oauth/` 与 `/.well-known/` 已代理

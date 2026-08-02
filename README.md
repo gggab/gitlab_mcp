@@ -88,7 +88,9 @@ install.ps1             Windows 全局安装程序（本机运行服务）
 join.ps1                Windows 同事一行接入已部署服务
 join.sh                 macOS 同事一行接入已部署服务（Keychain 存储 Token）
 src/server.mjs          MCP 服务
+src/oauth.mjs           可选 OAuth broker（GitLab 账号登录接入，免 PAT）
 tests/config.test.mjs   MCP 配置测试
+tests/oauth.test.mjs    OAuth broker 端到端测试（假上游 GitLab，零外网）
 tests/install.test.ps1  Windows 安装程序测试
 tests/join.test.ps1     Windows 一行接入脚本测试
 tests/join.test.sh      macOS 一行接入脚本测试（可注入 Keychain stub）

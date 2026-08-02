@@ -8,7 +8,9 @@
 - `join.ps1`: one-line onboarding to a centrally hosted MCP for Windows colleagues (no repo clone, no Node/Yarn).
 - `join.sh`: one-line onboarding to a centrally hosted MCP for macOS colleagues (Keychain token storage, no repo clone, no Node/Yarn).
 - `src/server.mjs`: GitLab MCP server.
+- `src/oauth.mjs`: optional OAuth broker (GitLab account sign-in for MCP clients, DCR + PKCE downstream, single pre-registered GitLab OAuth app upstream).
 - `tests/config.test.mjs`: runtime configuration test.
+- `tests/oauth.test.mjs`: OAuth broker end-to-end test with a fake upstream GitLab; no external access.
 - `tests/install.test.ps1`: installer configuration test.
 - `tests/join.test.ps1`: one-line onboarding script test (Windows).
 - `tests/join.test.sh`: one-line onboarding script test (macOS, injectable Keychain stub).
@@ -37,7 +39,8 @@
 ## Platform Setup
 
 - The server speaks MCP Streamable HTTP on `/mcp`; defaults: host `127.0.0.1`, port `8932`, overridable with `GitLabMcpHost` and `GitLabMcpPort`.
-- Every `/mcp` request must carry `Authorization: Bearer <GitLab token>`; requests without one get HTTP 401. The server never stores tokens and forwards each request's token to the GitLab API, so audit records stay attributable to the calling user.
+- Every `/mcp` request must carry `Authorization: Bearer <GitLab token>`; requests without one get HTTP 401. The server never stores tokens and forwards each request's token to the GitLab API as a Bearer header (works for both PATs and OAuth access tokens), so audit records stay attributable to the calling user.
+- Optional OAuth broker (`src/oauth.mjs`): enabled only when `GitLabMcpPublicUrl`, `GitLabOAuthClientId`, and `GitLabOAuthClientSecret` are all set (partial config refuses startup). Downstream it is a standard authorization server (DCR limited to loopback redirect URIs, authorization code + S256 PKCE, state required); upstream it is one pre-registered confidential GitLab OAuth app with a fixed callback URI. The token endpoint relays GitLab-issued tokens to clients, so the broker keeps no token state. Client registrations persist to `GitLabOAuthStorePath` when set. With the broker on, 401 responses advertise the protected-resource metadata URL via `WWW-Authenticate`.
 - Codex forwards the per-user token with `bearer_token_env_var = "GitLabAccessToken"`.
 - Windows uses parameterless `install.ps1` and writes a URL-based MCP section to the current user's `~/.codex/config.toml`.
 - macOS installs dependencies with Yarn, exposes `GitLabAccessToken` to the Codex process, and adds the same URL-based MCP section to `~/.codex/config.toml`.

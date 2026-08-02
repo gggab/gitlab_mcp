@@ -63,6 +63,19 @@ The user-level registration must:
 
 Restart Codex after changing MCP configuration or moving the server.
 
+## OAuth Broker (optional, src/oauth.mjs)
+
+- Purpose: MCP clients (Kimi CLI, Codex) sign in with their GitLab account via browser OAuth instead of a personal access token; no token lands in any client config file.
+- Verified client facts: Kimi CLI has `kimi mcp add --transport http [--auth oauth]` and writes header values literally into `~/.kimi/mcp.json`; fastmcp does NOT expand `${VAR}` env references in headers (tested locally with fastmcp 3.4.5), so static-header registration would force plaintext tokens on disk. OAuth is the only no-plaintext path for Kimi. Figma MCP uses the same standard flow (DCR + PKCE, confirmed by probing its well-known endpoints).
+- Downstream the broker is a standard authorization server: DCR at `/oauth/register` (loopback redirect URIs only: localhost/127.0.0.1/[::1], public clients only, `token_endpoint_auth_method = "none"`), authorization code + S256 PKCE at `/oauth/authorize` and `/oauth/token`, `state` required. Refresh grant is relayed upstream.
+- Upstream the broker is ONE pre-registered confidential GitLab OAuth app (user-owned app suffices, no admin needed) whose fixed callback URI `<publicUrl>/oauth/callback` absorbs GitLab's exact redirect-URI matching and missing DCR.
+- The token endpoint relays GitLab-issued tokens to the client unchanged; the broker keeps no token state, and `/mcp` accepts both PATs and OAuth access tokens.
+- Enabled only when `GitLabMcpPublicUrl` + `GitLabOAuthClientId` + `GitLabOAuthClientSecret` are all set; partial configuration refuses startup. `GitLabOAuthStorePath` persists DCR client registrations (no secrets); unset means memory-only. `GitLabBaseUrl` overrides the derived upstream base; `GitLabApiUrl` overrides the GitLab API base (used by tests).
+- The server forwards request tokens to the GitLab API with `Authorization: Bearer` (works for PAT and OAuth tokens); it used to send `PRIVATE-TOKEN`.
+- With the broker enabled, 401 responses carry `WWW-Authenticate: Bearer resource_metadata="<publicUrl>/.well-known/oauth-protected-resource"` for client discovery; nginx must proxy `/oauth/` and `/.well-known/` (see docs/deployment.md §3 and §5.5).
+- GitLab OAuth access tokens expire (default 2h); clients refresh automatically through the broker's relay.
+- `tests/oauth.test.mjs` runs the full flow against a fake upstream GitLab (authorize/token/API), zero external access: metadata, DCR validation, PKCE binding, single-use codes, refresh relay, Bearer forwarding, PAT regression, 401 discovery header, persistence across restart, disabled-by-default.
+
 ## Distribution
 
 - Publish the source to a private company GitLab repository.
