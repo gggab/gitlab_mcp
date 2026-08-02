@@ -2,13 +2,13 @@
 
 ## Purpose
 
-GitLab Deployment MCP is a Streamable HTTP service for Codex to inspect project pipelines and run an explicitly approved manual deployment Job.
+GitLab Deployment MCP is a Streamable HTTP service for Codex, Cursor, and Claude Code to inspect project pipelines and run an explicitly approved manual deployment Job.
 
 ## Authentication
 
 - OAuth is mandatory. `src/server.mjs` refuses startup unless `GitLabMcpPublicUrl`, `GitLabOAuthClientId`, and `GitLabOAuthClientSecret` are all configured.
 - `src/oauth.mjs` is the authorization broker: DCR and authorization-code PKCE downstream; one pre-registered GitLab OAuth App upstream with callback `<publicUrl>/oauth/callback`.
-- Unauthenticated `/mcp/gitlab-deployment` responses advertise protected-resource metadata through `WWW-Authenticate`; Codex opens the browser for GitLab authorization.
+- Unauthenticated `/mcp/gitlab-deployment` responses advertise protected-resource metadata through `WWW-Authenticate`; clients use their native OAuth login flow for GitLab authorization.
 - OAuth access and refresh tokens are handled by the client and relayed to GitLab per request. The broker keeps only expiry-bound access-token hashes in memory, so a restart triggers refresh or reauthorization. User credentials never belong in scripts, user environment variables, Codex configuration, or repository files.
 - `GitLabOAuthStorePath` persists DCR registrations only, not user credentials.
 
@@ -23,7 +23,7 @@ GitLab Deployment MCP is a Streamable HTTP service for Codex to inspect project 
 - Runtime: Node.js 20 and Yarn 1.x. Use Yarn only.
 - HTTP listener defaults to `127.0.0.1:8932`; expose `/mcp/gitlab-deployment`, `/oauth/`, and `/.well-known/` through the HTTPS public URL used by the OAuth App callback. Reserve `/mcp/<service>` for future MCP services.
 - `install.ps1` is for Windows self-hosting. It validates OAuth server configuration, installs dependencies, runs tests, and writes a URL-only MCP section.
-- `join.ps1` and `join.sh` are static hosted onboarding scripts. They write the managed MCP section only; after a full Codex restart, browser authorization happens on first use.
+- `join.ps1` and `join.sh` are static Codex onboarding scripts. `join-cursor.ps1` and `join-cursor.sh` safely merge the Cursor MCP URL; the macOS script uses built-in `osascript`. Users then run the client-native OAuth login command; none of the scripts store user credentials.
 - `yarn test` runs installer, onboarding, configuration, and fake-GitLab OAuth tests. It never contacts GitLab or runs a deployment.
 
 ## Maintenance Rules
