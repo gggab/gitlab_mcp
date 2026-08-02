@@ -1,11 +1,11 @@
 # 内网部署手册
 
-将 GitLab Deployment MCP 部署到公司内网，供 Codex、Cursor 和 Claude Code 通过 HTTPS 与 GitLab OAuth 使用。
+将 GitLab Deployment MCP 部署到公司内网，供 Codex、Cursor、Claude Code 和 Kimi Code 通过 HTTPS 与 GitLab OAuth 使用。
 
 ## 架构
 
 ```text
-Codex / Cursor / Claude Code -- HTTPS --> nginx (443) --> MCP service (127.0.0.1:8932) --> GitLab
+Codex / Cursor / Claude Code / Kimi Code -- HTTPS --> nginx (443) --> MCP service (127.0.0.1:8932) --> GitLab
                                                 |-- /mcp/gitlab-deployment
                                                 |-- /oauth/
                                                 `-- /.well-known/
@@ -161,14 +161,16 @@ curl -s https://mcp.example.com/.well-known/oauth-authorization-server
 
 ## 5. 托管接入脚本
 
-将仓库中的 `join.ps1`、`join-cursor.ps1`、`join.sh` 和 `join-cursor.sh` 渲染为真实 MCP 地址后，作为静态文件暴露：
+将仓库中的 `join.ps1`、`join-cursor.ps1`、`join-kimi.ps1`、`join.sh`、`join-cursor.sh` 和 `join-kimi.sh` 渲染为真实 MCP 地址后，作为静态文件暴露：
 
 ```bash
 sudo install -d /srv/gitlab-mcp-public
 sed 's|https://mcp.internal.company.com/mcp/gitlab-deployment|https://mcp.example.com/mcp/gitlab-deployment|' /opt/GitLabMCP/join.ps1 | sudo tee /srv/gitlab-mcp-public/join.ps1 > /dev/null
 sed 's|https://mcp.internal.company.com/mcp/gitlab-deployment|https://mcp.example.com/mcp/gitlab-deployment|' /opt/GitLabMCP/join-cursor.ps1 | sudo tee /srv/gitlab-mcp-public/join-cursor.ps1 > /dev/null
+sed 's|https://mcp.internal.company.com/mcp/gitlab-deployment|https://mcp.example.com/mcp/gitlab-deployment|' /opt/GitLabMCP/join-kimi.ps1 | sudo tee /srv/gitlab-mcp-public/join-kimi.ps1 > /dev/null
 sed 's|https://mcp.internal.company.com/mcp/gitlab-deployment|https://mcp.example.com/mcp/gitlab-deployment|' /opt/GitLabMCP/join.sh | sudo tee /srv/gitlab-mcp-public/join.sh > /dev/null
 sed 's|https://mcp.internal.company.com/mcp/gitlab-deployment|https://mcp.example.com/mcp/gitlab-deployment|' /opt/GitLabMCP/join-cursor.sh | sudo tee /srv/gitlab-mcp-public/join-cursor.sh > /dev/null
+sed 's|https://mcp.internal.company.com/mcp/gitlab-deployment|https://mcp.example.com/mcp/gitlab-deployment|' /opt/GitLabMCP/join-kimi.sh | sudo tee /srv/gitlab-mcp-public/join-kimi.sh > /dev/null
 ```
 
 在同一个 nginx `server` 中追加：
@@ -184,12 +186,22 @@ location = /join-cursor.ps1 {
     default_type text/plain;
 }
 
+location = /join-kimi.ps1 {
+    root /srv/gitlab-mcp-public;
+    default_type text/plain;
+}
+
 location = /join.sh {
     root /srv/gitlab-mcp-public;
     default_type text/plain;
 }
 
 location = /join-cursor.sh {
+    root /srv/gitlab-mcp-public;
+    default_type text/plain;
+}
+
+location = /join-kimi.sh {
     root /srv/gitlab-mcp-public;
     default_type text/plain;
 }
@@ -253,6 +265,22 @@ claude mcp add --transport http --scope user gitlab_deployment https://mcp.examp
 
 启动 Claude Code 后输入 `/mcp`，选择 `gitlab_deployment` 并完成浏览器 OAuth。Claude Code 会安全保存并自动刷新 OAuth 凭据；需要撤销时，在同一 `/mcp` 菜单选择 **Clear authentication**。
 
+### Kimi Code
+
+Windows：
+
+```powershell
+irm https://mcp.example.com/join-kimi.ps1 | iex
+```
+
+macOS：
+
+```bash
+curl -fsSL https://mcp.example.com/join-kimi.sh | bash
+```
+
+脚本仅合并 `~/.kimi-code/mcp.json` 中的远程 MCP URL，保留其他 Kimi Code 配置且不写入 Token。随后启动 `kimi`，输入 `/mcp-config login gitlab_deployment`，由 Kimi Code 打开浏览器完成 GitLab OAuth。
+
 ## 7. 上线验收与日常维护
 
 发布前依次验证：
@@ -281,7 +309,7 @@ sudo systemctl restart gitlab-mcp
 | --- | --- |
 | 服务无法启动 | `journalctl -u gitlab-mcp`；三个必需 OAuth 变量和 Node 路径是否正确。 |
 | `codex mcp login gitlab_deployment` 没有打开授权页 | 先确认该命令使用的是 `gitlab_deployment` 配置；检查 `/mcp/gitlab-deployment` 的 401 是否带 `WWW-Authenticate`，以及 `/.well-known/` 和 `/oauth/` 是否已代理。 |
-| Cursor 或 Claude Code 无法登录 | 确认 MCP URL 是 `https://mcp.example.com/mcp/gitlab-deployment`，而不是裸 `/mcp`；确认客户端已升级到支持 OAuth 的 Streamable HTTP MCP 版本。 |
+| Cursor、Claude Code 或 Kimi Code 无法登录 | 确认 MCP URL 是 `https://mcp.example.com/mcp/gitlab-deployment`，而不是裸 `/mcp`；确认客户端已升级到支持 OAuth 的 Streamable HTTP MCP 版本；Kimi Code 使用 `/mcp-config login gitlab_deployment`。 |
 | 浏览器回调失败 | OAuth App 回调地址是否与 `GitLabMcpPublicUrl` 同源且精确匹配。 |
 | 响应卡住或超时 | nginx 是否关闭缓冲并配置足够长的读取超时。 |
 | 提示确认项目范围 | 正常：服务重启后 scope 会清空，重新调用 `configure_project_scope`。 |

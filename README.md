@@ -1,6 +1,6 @@
 # GitLab Deployment MCP
 
-一个供 Codex、Cursor 和 Claude Code 使用的 GitLab 部署 MCP 服务。它通过 Streamable HTTP 提供项目、Pipeline 和 Job 查询；部署仍须经过项目范围确认、SHA 核对和单独写操作批准。
+一个供 Codex、Cursor、Claude Code 和 Kimi Code 使用的 GitLab 部署 MCP 服务。它通过 Streamable HTTP 提供项目、Pipeline 和 Job 查询；部署仍须经过项目范围确认、SHA 核对和单独写操作批准。
 
 认证只有 GitLab OAuth：用户在自己的客户端中打开浏览器，登录 GitLab 并授权。用户不需要创建、复制或保存个人访问凭据。
 
@@ -13,6 +13,7 @@
 | Codex | 托管 `join.ps1` | 托管 `join.sh` |
 | Cursor | 托管 `join-cursor.ps1` | 托管 `join-cursor.sh` |
 | Claude Code | 原生 `claude mcp add` | 原生 `claude mcp add` |
+| Kimi Code | 托管 `join-kimi.ps1` | 托管 `join-kimi.sh` |
 
 ### Codex
 
@@ -56,7 +57,21 @@ macOS：
 claude mcp add --transport http --scope user gitlab_deployment https://<真实服务地址>/mcp/gitlab-deployment
 ```
 
-Codex 接入后运行 `codex mcp login gitlab_deployment`；Cursor 接入后运行 `cursor-agent mcp login gitlab_deployment`；Claude Code 接入后启动 `claude` 并输入 `/mcp` 完成浏览器授权。Codex 脚本写入 MCP URL、工具白名单和写操作审批配置；Cursor 脚本只写入 MCP URL；Claude Code 使用自身 CLI 写入用户级配置。示例域名 `mcp.internal.company.com` 不是可用服务地址。
+### Kimi Code
+
+Windows：
+
+```powershell
+irm https://<真实服务地址>/join-kimi.ps1 | iex
+```
+
+macOS：
+
+```bash
+curl -fsSL https://<真实服务地址>/join-kimi.sh | bash
+```
+
+Codex 接入后运行 `codex mcp login gitlab_deployment`；Cursor 接入后运行 `cursor-agent mcp login gitlab_deployment`；Claude Code 接入后启动 `claude` 并输入 `/mcp`；Kimi Code 接入后启动 `kimi` 并输入 `/mcp-config login gitlab_deployment`。四者都会打开浏览器完成 GitLab 授权。Codex 脚本写入 MCP URL、工具白名单和写操作审批配置；Cursor 与 Kimi Code 脚本只写入 MCP URL；Claude Code 使用自身 CLI 写入用户级配置。示例域名 `mcp.internal.company.com` 不是可用服务地址。
 
 ## 自行部署服务
 
@@ -98,6 +113,8 @@ install.ps1             Windows 自行部署安装脚本
 join.ps1                Windows OAuth 接入脚本
 join-cursor.ps1         Cursor Windows OAuth 接入脚本
 join-cursor.sh          Cursor macOS OAuth 接入脚本
+join-kimi.ps1           Kimi Code Windows OAuth 接入脚本
+join-kimi.sh            Kimi Code macOS OAuth 接入脚本
 join.sh                 macOS OAuth 接入脚本
 src/server.mjs          MCP HTTP 服务
 src/oauth.mjs           GitLab OAuth broker

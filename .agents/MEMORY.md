@@ -2,7 +2,7 @@
 
 ## Purpose
 
-GitLab Deployment MCP is a Streamable HTTP service for Codex, Cursor, and Claude Code to inspect project pipelines and run an explicitly approved manual deployment Job.
+GitLab Deployment MCP is a Streamable HTTP service for Codex, Cursor, Claude Code, and Kimi Code to inspect project pipelines and run an explicitly approved manual deployment Job.
 
 ## Authentication
 
@@ -23,7 +23,7 @@ GitLab Deployment MCP is a Streamable HTTP service for Codex, Cursor, and Claude
 - Runtime: Node.js 20 and Yarn 1.x. Use Yarn only.
 - HTTP listener defaults to `127.0.0.1:8932`; expose `/mcp/gitlab-deployment`, `/oauth/`, and `/.well-known/` through the HTTPS public URL used by the OAuth App callback. Reserve `/mcp/<service>` for future MCP services.
 - `install.ps1` is for Windows self-hosting. It validates OAuth server configuration, installs dependencies, runs tests, and writes a URL-only MCP section.
-- `join.ps1` and `join.sh` are static Codex onboarding scripts. `join-cursor.ps1` and `join-cursor.sh` safely merge the Cursor MCP URL; the macOS script uses built-in `osascript`. Users then run the client-native OAuth login command; none of the scripts store user credentials.
+- `join.ps1` and `join.sh` are static Codex onboarding scripts. `join-cursor.ps1`/`join-cursor.sh` and `join-kimi.ps1`/`join-kimi.sh` safely merge the corresponding MCP URL; macOS scripts use built-in `osascript`. Kimi Code reads `~/.kimi-code/mcp.json`, then users run `/mcp-config login gitlab_deployment`; none of the scripts store user credentials.
 - `yarn test` runs installer, onboarding, configuration, and fake-GitLab OAuth tests. It never contacts GitLab or runs a deployment.
 
 ## Maintenance Rules
