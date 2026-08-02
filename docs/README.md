@@ -1,34 +1,34 @@
 # 项目文档
 
-面向使用者的概览见 [根目录 README](../README.md)。
+面向使用者的功能概览见[根目录 README](../README.md)。服务端部署先选择一种认证模式：
 
-## 结构
+| 模式 | 适用场景 | 服务端保存用户凭据 | 部署手册 |
+| --- | --- | --- | --- |
+| GitLab OAuth（默认） | 有可信 HTTPS 地址，多人通过浏览器登录 | 否；仅持有内存 Token 哈希 | [OAuth 部署](deployment.md) |
+| Personal Access Token | 明确不使用 OAuth，用户各自管理 PAT | 否；每次请求直接转发用户 PAT | [Token 部署](personal-token.md) |
 
-- `install.ps1`：Windows 自行部署安装与 OAuth MCP 配置。
-- `join.ps1`、`join.sh`：Codex 的 Windows/macOS 一行 OAuth 接入脚本；`join-cursor.ps1`、`join-cursor.sh`：Cursor 的 Windows/macOS 一行接入脚本；`join-kimi.ps1`、`join-kimi.sh`：Kimi Code 的 Windows/macOS 一行接入脚本；Claude Code 使用原生 `claude mcp add --transport http` 命令；均不保存用户凭据。
-- `src/server.mjs`：Streamable HTTP MCP 服务。
-- `src/oauth.mjs`：GitLab OAuth broker，提供 DCR 和 PKCE。
-- `tests/config.test.mjs`：OAuth 保护的 MCP HTTP 配置测试。
-- `tests/oauth.test.mjs`：假 GitLab 上的 OAuth 端到端测试。
-- `tests/install.test.ps1`、`tests/join.test.ps1`、`tests/join-cursor.test.ps1`、`tests/join-kimi.test.ps1`、`tests/join.test.sh`、`tests/join-cursor.test.sh`、`tests/join-kimi.test.sh`：安装与接入配置测试。
+两种模式互斥。OAuth 需要 `GitLabMcpPublicUrl`、OAuth Application ID 和 Secret；Personal Token 模式必须设置 `GitLabMcpAuthMode=personal-token`，且不能保留 OAuth 配置。
 
-## 指南
+## 源码对应关系
 
-- [内网部署](deployment.md)：systemd、nginx、GitLab OAuth App，以及 Codex、Cursor、Claude Code、Kimi Code 的团队接入。
-- [本机运行](self-hosting.md)：在自己的机器上运行 OAuth MCP 服务。
+- `src/server.mjs`：Streamable HTTP MCP、认证模式选择、GitLab REST API 和部署安全边界。
+- `src/oauth.mjs`：OAuth broker，提供 DCR、授权码、PKCE 和刷新令牌转发。
+- `install.ps1`：Windows 本机 OAuth 安装；不用于 Personal Token 模式。
+- `join*.ps1`、`join*.sh`：OAuth 客户端接入脚本。
+- `join-personal-token.ps1`、`join-personal-token-macos.sh`：Personal Token 客户端接入脚本。
+- `tests/`：安装、接入、OAuth 与 Personal Token 测试；默认不访问真实 GitLab。
 
-## 认证与部署契约
+## 两种模式共同的操作边界
 
-- OAuth broker 是必需项；缺少 `GitLabMcpPublicUrl`、`GitLabOAuthClientId` 或 `GitLabOAuthClientSecret` 时服务拒绝启动。
-- 未认证的 `/mcp/gitlab-deployment` 请求返回 401，并通过 `WWW-Authenticate` 公开 OAuth 资源元数据；Codex、Cursor、Claude Code、Kimi Code 均可发起浏览器授权。保留 `/mcp/<service>` 给未来的 MCP 服务。
-- OAuth access token 仅由客户端在请求中携带；服务只保留带过期时间的内存哈希，不把用户凭据写入配置或磁盘。服务重启后由客户端刷新或重新授权。
-- `configure_project_scope` 需要完整项目路径和 `CONFIRM PROJECT SCOPE`。
-- `play_deploy_job` 需要精确 Job 名称、匹配 SHA 和 `DEPLOY APPROVED`。
+- 每次对话先用完整项目路径和 `CONFIRM PROJECT SCOPE` 调用 `configure_project_scope`。
+- 部署前必须展示项目、Job、分支、Pipeline ID 和 SHA。
+- `play_deploy_job` 只接受精确的手动 Job 名称、匹配的 SHA 和 `DEPLOY APPROVED`。
+- Pipeline Job ID 必须实时查询，不能写死。
 
-## 测试
+## 验证
 
 ```bash
 yarn test
 ```
 
-默认测试不访问真实 GitLab。浏览器授权的真实联调在 OAuth 服务部署后通过 Codex 完成。
+真实环境上线验收只做认证接入和只读查询；不要用验收流程触发真实部署。

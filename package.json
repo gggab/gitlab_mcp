@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "node src/server.mjs",
-    "test": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/install.test.ps1 && powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/join.test.ps1 && powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/join-cursor.test.ps1 && powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/join-kimi.test.ps1 && bash tests/join.test.sh && bash tests/join-cursor.test.sh && bash tests/join-kimi.test.sh && node tests/config.test.mjs && node tests/oauth.test.mjs"
+    "test": "powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/install.test.ps1 && powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/join.test.ps1 && powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/join-cursor.test.ps1 && powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/join-kimi.test.ps1 && powershell.exe -NoProfile -ExecutionPolicy Bypass -File tests/join-personal-token.test.ps1 && bash tests/join.test.sh && bash tests/join-cursor.test.sh && bash tests/join-kimi.test.sh && bash tests/join-personal-token-macos.test.sh && node tests/config.test.mjs && node tests/personal-token.test.mjs && node tests/oauth.test.mjs"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.30.0",

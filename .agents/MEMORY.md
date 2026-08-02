@@ -6,10 +6,13 @@ GitLab Deployment MCP is a Streamable HTTP service for Codex, Cursor, Claude Cod
 
 ## Authentication
 
-- OAuth is mandatory. `src/server.mjs` refuses startup unless `GitLabMcpPublicUrl`, `GitLabOAuthClientId`, and `GitLabOAuthClientSecret` are all configured.
+- OAuth is the default mode. `src/server.mjs` refuses OAuth startup unless `GitLabMcpPublicUrl`, `GitLabOAuthClientId`, and `GitLabOAuthClientSecret` are all configured.
+- `GitLabMcpAuthMode=personal-token` is the mutually exclusive intranet HTTP mode. It has no OAuth broker or persisted credentials; every client supplies `GITLAB_MCP_ACCESS_TOKEN` in its request header and the server forwards it to GitLab.
+- `GitLabBaseUrl` selects the GitLab OAuth endpoints; `GitLabApiUrl` selects the REST API and must include `/api/v4`. Personal-token deployments use `GitLabApiUrl`, not `GitLabBaseUrl`.
+- `join-personal-token-macos.sh` is self-contained for intranet `curl | bash`: it stores the token in the macOS login Keychain and configures Codex, Cursor, Kimi Code, and installed Claude Code to reference `GITLAB_MCP_ACCESS_TOKEN`.
 - `src/oauth.mjs` is the authorization broker: DCR and authorization-code PKCE downstream; one pre-registered GitLab OAuth App upstream with callback `<publicUrl>/oauth/callback`.
 - Unauthenticated `/mcp/gitlab-deployment` responses advertise protected-resource metadata through `WWW-Authenticate`; clients use their native OAuth login flow for GitLab authorization.
-- OAuth access and refresh tokens are handled by the client and relayed to GitLab per request. The broker keeps only expiry-bound access-token hashes in memory, so a restart triggers refresh or reauthorization. User credentials never belong in scripts, user environment variables, Codex configuration, or repository files.
+- In OAuth mode, access and refresh tokens are handled by the client and relayed to GitLab per request. The broker keeps only expiry-bound access-token hashes in memory, so a restart triggers refresh or reauthorization. OAuth credentials never belong in scripts, user environment variables, Codex configuration, or repository files.
 - `GitLabOAuthStorePath` persists DCR registrations only, not user credentials.
 
 ## Safety Contract
@@ -22,9 +25,10 @@ GitLab Deployment MCP is a Streamable HTTP service for Codex, Cursor, Claude Cod
 
 - Runtime: Node.js 20 and Yarn 1.x. Use Yarn only.
 - HTTP listener defaults to `127.0.0.1:8932`; expose `/mcp/gitlab-deployment`, `/oauth/`, and `/.well-known/` through the HTTPS public URL used by the OAuth App callback. Reserve `/mcp/<service>` for future MCP services.
+- With systemd `ProtectSystem=strict`, the directory containing `GitLabOAuthStorePath` must be listed in `ReadWritePaths`; the store contains DCR registrations only.
 - `install.ps1` is for Windows self-hosting. It validates OAuth server configuration, installs dependencies, runs tests, and writes a URL-only MCP section.
 - `join.ps1` and `join.sh` are static Codex onboarding scripts. `join-cursor.ps1`/`join-cursor.sh` and `join-kimi.ps1`/`join-kimi.sh` safely merge the corresponding MCP URL; macOS scripts use built-in `osascript`. Kimi Code reads `~/.kimi-code/mcp.json`, then users run `/mcp-config login gitlab_deployment`; none of the scripts store user credentials.
-- `yarn test` runs installer, onboarding, configuration, and fake-GitLab OAuth tests. It never contacts GitLab or runs a deployment.
+- `yarn test` runs installer, onboarding, OAuth, and fake-GitLab personal-token forwarding tests. It never contacts GitLab or runs a deployment.
 
 ## Maintenance Rules
 

@@ -14,6 +14,9 @@ export const DEFAULT_HOST = "127.0.0.1";
 export const DEFAULT_PORT = 8932;
 const HOST_ENV = "GitLabMcpHost";
 const PORT_ENV = "GitLabMcpPort";
+const AUTH_MODE_ENV = "GitLabMcpAuthMode";
+const OAUTH_MODE = "oauth";
+const PERSONAL_TOKEN_MODE = "personal-token";
 const GITLAB_PATH_PATTERN =
   /^[a-zA-Z0-9_.-]+(?:\/[a-zA-Z0-9_.-]+)*$/;
 // ponytail: process-local scopes last until restart; add expiry only if long-lived servers accumulate them.
@@ -50,7 +53,7 @@ function bearerToken(extra) {
   const header = extra?.requestInfo?.headers?.["authorization"];
   const accessToken = readBearerAccessToken(header);
   if (!accessToken) {
-    throw new Error("Request must carry an Authorization: Bearer <OAuth access token> header");
+    throw new Error("Request must carry an Authorization: Bearer <GitLab access token> header");
   }
   return accessToken;
 }
@@ -453,14 +456,20 @@ function writeJsonRpcError(res, status, message) {
   );
 }
 
-export function startHttpServer({ host, port, oauth } = {}) {
-  if (!oauth) {
+export function startHttpServer({ host, port, authMode = OAUTH_MODE, oauth } = {}) {
+  if (authMode !== OAUTH_MODE && authMode !== PERSONAL_TOKEN_MODE) {
+    throw new Error(`Unsupported GitLab MCP authentication mode: ${authMode}`);
+  }
+  if (authMode === OAUTH_MODE && !oauth) {
     throw new Error("OAuth broker configuration is required");
   }
   const listenHost = host ?? process.env[HOST_ENV] ?? DEFAULT_HOST;
   const listenPort = port ?? Number(process.env[PORT_ENV] ?? DEFAULT_PORT);
   const transports = new Map();
-  const broker = createOAuthBroker({ ...oauth, mcpPath: MCP_PATH });
+  const broker =
+    authMode === OAUTH_MODE
+      ? createOAuthBroker({ ...oauth, mcpPath: MCP_PATH })
+      : undefined;
 
   const httpServer = createHttpServer((req, res) => {
     handleRequest(req, res).catch((error) => {
@@ -472,7 +481,7 @@ export function startHttpServer({ host, port, oauth } = {}) {
   async function handleRequest(req, res) {
     const url = new URL(req.url ?? "/", `http://${req.headers.host ?? "localhost"}`);
 
-    if (await broker.handleRequest(req, res, url)) {
+    if (broker && (await broker.handleRequest(req, res, url))) {
       return;
     }
 
@@ -482,10 +491,16 @@ export function startHttpServer({ host, port, oauth } = {}) {
     }
 
     const accessToken = readBearerAccessToken(req.headers.authorization);
-    if (!accessToken || !broker.hasIssuedAccessToken(accessToken)) {
-      const authenticate = `Bearer resource_metadata="${broker.resourceMetadataUrl}"`;
-      res.writeHead(401, { "www-authenticate": authenticate });
-      writeJsonRpcError(res, 401, "Authorization: Bearer <OAuth access token> is required");
+    if (!accessToken || (broker && !broker.hasIssuedAccessToken(accessToken))) {
+      if (broker) {
+        const authenticate = `Bearer resource_metadata="${broker.resourceMetadataUrl}"`;
+        res.writeHead(401, { "www-authenticate": authenticate });
+      }
+      writeJsonRpcError(
+        res,
+        401,
+        `Authorization: Bearer <${broker ? "OAuth " : "GitLab "}access token> is required`,
+      );
       return;
     }
 
@@ -556,11 +571,34 @@ function oauthConfigFromEnv() {
   };
 }
 
+export function serverConfigFromEnv() {
+  const authMode = process.env[AUTH_MODE_ENV] ?? OAUTH_MODE;
+  if (authMode === OAUTH_MODE) {
+    return { authMode, oauth: oauthConfigFromEnv() };
+  }
+  if (authMode === PERSONAL_TOKEN_MODE) {
+    const oauthNames = [
+      "GitLabMcpPublicUrl",
+      "GitLabOAuthClientId",
+      "GitLabOAuthClientSecret",
+      "GitLabOAuthStorePath",
+    ];
+    const configuredOauth = oauthNames.filter((name) => process.env[name]);
+    if (configuredOauth.length) {
+      throw new Error(
+        `personal-token mode cannot use OAuth configuration: ${configuredOauth.join(", ")}`,
+      );
+    }
+    return { authMode };
+  }
+  throw new Error(`Unsupported GitLab MCP authentication mode: ${authMode}`);
+}
+
 export async function main() {
-  const oauth = oauthConfigFromEnv();
-  const { host, port } = await startHttpServer({ oauth });
+  const config = serverConfigFromEnv();
+  const { host, port } = await startHttpServer(config);
   console.log(`GitLab deployment MCP listening on http://${host}:${port}${MCP_PATH}`);
-  console.log("OAuth broker enabled (GitLab account sign-in for MCP clients)");
+  console.log(`GitLab MCP authentication mode: ${config.authMode}`);
 }
 
 if (import.meta.url === pathToFileURL(process.argv[1]).href) {

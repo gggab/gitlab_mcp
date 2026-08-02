@@ -2,7 +2,7 @@
 
 一个供 Codex、Cursor、Claude Code 和 Kimi Code 使用的 GitLab 部署 MCP 服务。它通过 Streamable HTTP 提供项目、Pipeline 和 Job 查询；部署仍须经过项目范围确认、SHA 核对和单独写操作批准。
 
-认证只有 GitLab OAuth：用户在自己的客户端中打开浏览器，登录 GitLab 并授权。用户不需要创建、复制或保存个人访问凭据。
+默认认证是 GitLab OAuth：用户在自己的客户端中打开浏览器，登录 GitLab 并授权。也可以选择与 OAuth 互斥的 Personal Access Token 模式。
 
 ## 接入已部署服务
 
@@ -75,16 +75,10 @@ Codex 接入后运行 `codex mcp login gitlab_deployment`；Cursor 接入后运�
 
 ## 自行部署服务
 
-服务端必须配置一个 GitLab OAuth App、HTTPS 域名，以及：
+服务端部署请按认证方式选择一份手册：
 
-```text
-GitLabMcpPublicUrl
-GitLabOAuthClientId
-GitLabOAuthClientSecret
-GitLabOAuthStorePath
-```
-
-详细步骤见 [本机运行](docs/self-hosting.md) 和 [内网部署](docs/deployment.md)。
+- [GitLab OAuth 部署](docs/deployment.md)：配置 OAuth Application、HTTPS、systemd、nginx 和浏览器登录；
+- [Personal Access Token 部署](docs/personal-token.md)：服务端不配置 OAuth，每位用户从本机发送自己的 PAT。
 
 ## 首次使用
 
