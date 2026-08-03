@@ -43,7 +43,6 @@ read -r -s -p 'GitLab Personal Access Token: ' token
 printf '\n'
 if [ -z "$token" ]; then printf 'A GitLab Personal Access Token is required.\n' >&2; exit 1; fi
 /usr/bin/security add-generic-password -U -a "$(/usr/bin/id -un)" -s "$SERVICE_NAME" -w "$token"
-export GITLAB_MCP_ACCESS_TOKEN="$token"
 unset token
 
 /usr/bin/install -d -m 700 "$SUPPORT_DIR" "$HOME/Library/LaunchAgents"
@@ -148,7 +147,8 @@ JXA
 set_codex_config
 set_json_configs
 if command -v claude >/dev/null 2>&1; then
-    claude mcp add-json --scope user "$SERVER_NAME" "{\"type\":\"http\",\"url\":\"$MCP_URL\",\"headers\":{\"Authorization\":\"Bearer \${$TOKEN_ENV}\"}}"
+    claude_header='Authorization: Bearer ${GITLAB_MCP_ACCESS_TOKEN}'
+    claude mcp add --transport http --scope user "$SERVER_NAME" "$MCP_URL" --header "$claude_header"
 else
     printf 'Claude Code is not installed; skipped its configuration. Run this script again after installing it.\n' >&2
 fi

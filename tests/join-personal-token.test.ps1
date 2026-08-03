@@ -1,7 +1,7 @@
 $ErrorActionPreference = "Stop"
 $script = Join-Path $PSScriptRoot "..\join-personal-token.ps1"
 $content = [IO.File]::ReadAllText($script)
-foreach ($expected in @("Read-Host", 'SetEnvironmentVariable($tokenEnv, $token, "User")', 'SetEnvironmentVariable($tokenEnv, $token, "Process")', "bearer_token_env_var", "GITLAB_MCP_ACCESS_TOKEN", "claude mcp add-json", '$LASTEXITCODE -ne 0')) { if ($content -notmatch [regex]::Escape($expected)) { throw "Missing $expected" } }
+foreach ($expected in @("Read-Host", 'SetEnvironmentVariable($tokenEnv, $token, "User")', "bearer_token_env_var", "GITLAB_MCP_ACCESS_TOKEN", "claude mcp add --transport http", '--header $claudeHeader', '$LASTEXITCODE -ne 0')) { if ($content -notmatch [regex]::Escape($expected)) { throw "Missing $expected" } }
 $placeholder = "http://mcp.internal.company.com/mcp/gitlab-deployment"
 if ([regex]::Matches($content, [regex]::Escape($placeholder)).Count -ne 1) { throw "Hosted-script URL placeholder must occur exactly once" }
 $rendered = $content.Replace($placeholder, "http://10.20.30.40/mcp/gitlab-deployment")

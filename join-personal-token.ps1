@@ -40,7 +40,6 @@ try { $token = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($pointer) }
 finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer) }
 if (-not $token) { throw "A GitLab Personal Access Token is required." }
 [Environment]::SetEnvironmentVariable($tokenEnv, $token, "User")
-[Environment]::SetEnvironmentVariable($tokenEnv, $token, "Process")
 $token = $null
 
 $homeDirectory = [Environment]::GetFolderPath("UserProfile")
@@ -62,8 +61,8 @@ enabled = true
 Update-JsonMcpConfig (Join-Path $homeDirectory ".cursor\mcp.json") ([pscustomobject]@{ url = $McpUrl; headers = [pscustomobject]@{ Authorization = "Bearer `${env:GITLAB_MCP_ACCESS_TOKEN}" } })
 Update-JsonMcpConfig (Join-Path $homeDirectory ".kimi-code\mcp.json") ([pscustomobject]@{ url = $McpUrl; bearerTokenEnvVar = $tokenEnv })
 if (Get-Command claude -ErrorAction SilentlyContinue) {
-    $claudeJson = '{"type":"http","url":"' + $McpUrl + '","headers":{"Authorization":"Bearer ${GITLAB_MCP_ACCESS_TOKEN}"}}'
-    & claude mcp add-json --scope user $serverName $claudeJson
+    $claudeHeader = 'Authorization: Bearer ${GITLAB_MCP_ACCESS_TOKEN}'
+    & claude mcp add --transport http --scope user $serverName $McpUrl --header $claudeHeader
     if ($LASTEXITCODE -ne 0) { throw "Claude Code MCP configuration failed with exit code $LASTEXITCODE" }
 }
 else { Write-Warning "Claude Code is not installed; run this script again after installing it." }
