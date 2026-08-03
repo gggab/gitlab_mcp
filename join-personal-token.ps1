@@ -8,6 +8,28 @@ $legacyServerName = "standard_smart_office_gitlab"
 $tokenEnv = "GITLAB_MCP_ACCESS_TOKEN"
 $exampleUrl = "http://mcp.internal.company.com" + "/mcp/gitlab-deployment"
 
+function Update-JsonMcpConfig([string]$Path, [object]$Entry) {
+    $directory = Split-Path $Path -Parent
+    New-Item -ItemType Directory -Force -Path $directory | Out-Null
+    $content = if (Test-Path $Path) { [IO.File]::ReadAllText($Path) } else { "" }
+    if ([string]::IsNullOrWhiteSpace($content)) {
+        $config = [pscustomobject]@{}
+    }
+    else {
+        try { $config = $content | ConvertFrom-Json }
+        catch { throw "Invalid MCP JSON: $Path" }
+        if (-not $content.TrimStart().StartsWith("{") -or $config -isnot [pscustomobject]) { throw "MCP configuration must be a JSON object: $Path" }
+    }
+    if ($null -eq $config.PSObject.Properties["mcpServers"]) { $config | Add-Member NoteProperty mcpServers ([pscustomobject]@{}) }
+    $servers = $config.mcpServers
+    if ($servers -isnot [pscustomobject]) { throw "mcpServers must be a JSON object: $Path" }
+    foreach ($name in @($serverName, $legacyServerName)) { if ($servers.PSObject.Properties[$name]) { $servers.PSObject.Properties.Remove($name) } }
+    $servers | Add-Member NoteProperty $serverName $Entry
+    [IO.File]::WriteAllText($Path, (($config | ConvertTo-Json -Depth 10) + "`r`n"), [Text.UTF8Encoding]::new($false))
+}
+
+if ($MyInvocation.InvocationName -eq ".") { return }
+
 if ($McpUrl -eq $exampleUrl -or $McpUrl -match '[\s"]' -or $McpUrl -notmatch '^https?://') {
     throw "The deployer must replace the example MCP URL with an absolute internal HTTP or HTTPS URL before hosting this script."
 }
@@ -19,20 +41,6 @@ finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer) }
 if (-not $token) { throw "A GitLab Personal Access Token is required." }
 [Environment]::SetEnvironmentVariable($tokenEnv, $token, "User")
 $token = $null
-
-function Update-JsonMcpConfig([string]$Path, [object]$Entry) {
-    $directory = Split-Path $Path -Parent
-    New-Item -ItemType Directory -Force -Path $directory | Out-Null
-    try { $config = if (Test-Path $Path) { [IO.File]::ReadAllText($Path) | ConvertFrom-Json } else { [pscustomobject]@{} } }
-    catch { throw "Invalid MCP JSON: $Path" }
-    if ($config -isnot [pscustomobject]) { throw "MCP configuration must be a JSON object: $Path" }
-    if ($null -eq $config.PSObject.Properties["mcpServers"]) { $config | Add-Member NoteProperty mcpServers ([pscustomobject]@{}) }
-    $servers = $config.mcpServers
-    if ($servers -isnot [pscustomobject]) { throw "mcpServers must be a JSON object: $Path" }
-    foreach ($name in @($serverName, $legacyServerName)) { if ($servers.PSObject.Properties[$name]) { $servers.PSObject.Properties.Remove($name) } }
-    $servers | Add-Member NoteProperty $serverName $Entry
-    [IO.File]::WriteAllText($Path, (($config | ConvertTo-Json -Depth 10) + "`r`n"), [Text.UTF8Encoding]::new($false))
-}
 
 $homeDirectory = [Environment]::GetFolderPath("UserProfile")
 $codexPath = Join-Path $homeDirectory ".codex\config.toml"
