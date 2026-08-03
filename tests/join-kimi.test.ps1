@@ -25,6 +25,17 @@ try {
     if ($null -ne $config.mcpServers.PSObject.Properties["standard_smart_office_gitlab"]) { throw "Legacy Kimi Code MCP configuration was not removed" }
     if (@($config.mcpServers.PSObject.Properties.Name | Where-Object { $_ -eq "gitlab_deployment" }).Count -ne 1) { throw "Kimi Code MCP configuration is not idempotent" }
     if ([IO.File]::ReadAllText($configPath) -match "Authorization|token|secret") { throw "Kimi Code configuration contains a client credential" }
+
+    $userProfile = Join-Path $testRoot "user"
+    $applicationData = Join-Path $testRoot "appdata"
+    $desktopHome = Join-Path $applicationData "kimi-desktop\daimon-share\daimon\runtime\kimi-code\home"
+    New-Item -ItemType Directory -Path $desktopHome -Force | Out-Null
+    Set-InstalledKimiMcpConfigs -McpUrl $mcpUrl -UserProfile $userProfile -ApplicationData $applicationData
+    foreach ($path in @((Join-Path $userProfile ".kimi-code\mcp.json"), (Join-Path $desktopHome "mcp.json"))) {
+        $installedConfig = [IO.File]::ReadAllText($path) | ConvertFrom-Json
+        if ($installedConfig.mcpServers.gitlab_deployment.url -ne $mcpUrl) { throw "Installed Kimi Code MCP configuration was not updated: $path" }
+    }
+
     [IO.File]::WriteAllText($configPath, "{ invalid json", [Text.UTF8Encoding]::new($false))
     Assert-Throws { Set-KimiMcpConfig -McpUrl $mcpUrl -ConfigDirectory $configDirectory } "Invalid JSON configuration was accepted"
     Write-Output "ok: Kimi Code onboarding config update verified"

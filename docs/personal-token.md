@@ -173,7 +173,7 @@ sudo systemctl reload nginx
 | Windows | `join-personal-token.ps1` | Windows 当前用户环境变量 `GITLAB_MCP_ACCESS_TOKEN` |
 | macOS | `join-personal-token-macos.sh` | 登录 Keychain；LaunchAgent 登录时加载环境变量 |
 
-两个脚本都会配置 Codex、Cursor、Kimi Code，以及本机已安装的 Claude Code。它们不会把 Token 写入 MCP 客户端配置，但 Windows 用户环境变量本身是当前用户可读取的持久化存储。
+两个脚本都会配置 Codex、Cursor、Kimi Code，以及本机已安装的 Claude Code。Windows 脚本同时写入独立 Kimi Code 的 `~/.kimi-code/mcp.json`，并在检测到 Kimi Desktop 时写入 `%APPDATA%\kimi-desktop\daimon-share\daimon\runtime\kimi-code\home\mcp.json`。它们不会把 Token 写入 MCP 客户端配置，但 Windows 用户环境变量本身是当前用户可读取的持久化存储。
 
 部署方必须先把脚本中的示例 MCP URL 替换为真实地址，再通过可信渠道分发。例如使用 HTTPS 地址：
 

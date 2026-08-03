@@ -17,6 +17,16 @@ try {
     $config = [IO.File]::ReadAllText($configPath) | ConvertFrom-Json
     if ($config.mcpServers.gitlab_deployment.url -ne "http://mcp.test/mcp/gitlab-deployment") { throw "Blank MCP configuration was not initialized" }
 
+    $userProfile = Join-Path $temporaryDirectory "user"
+    $applicationData = Join-Path $temporaryDirectory "appdata"
+    $desktopHome = Join-Path $applicationData "kimi-desktop\daimon-share\daimon\runtime\kimi-code\home"
+    New-Item -ItemType Directory -Path $desktopHome -Force | Out-Null
+    Update-InstalledKimiMcpConfigs $userProfile $applicationData ([pscustomobject]@{ url = "http://mcp.test/mcp/gitlab-deployment"; bearerTokenEnvVar = "GITLAB_MCP_ACCESS_TOKEN" })
+    foreach ($path in @((Join-Path $userProfile ".kimi-code\mcp.json"), (Join-Path $desktopHome "mcp.json"))) {
+        $kimiConfig = [IO.File]::ReadAllText($path) | ConvertFrom-Json
+        if ($kimiConfig.mcpServers.gitlab_deployment.bearerTokenEnvVar -ne "GITLAB_MCP_ACCESS_TOKEN") { throw "Kimi Code token configuration was not updated: $path" }
+    }
+
     [IO.File]::WriteAllText($configPath, "[]", [Text.UTF8Encoding]::new($false))
     try { Update-JsonMcpConfig $configPath ([pscustomobject]@{ url = "http://mcp.test" }); throw "Non-object MCP configuration was accepted" }
     catch { if ($_.Exception.Message -notmatch "must be a JSON object") { throw } }

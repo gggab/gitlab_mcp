@@ -65,6 +65,8 @@ Windows：
 irm https://<真实服务地址>/join-kimi.ps1 | iex
 ```
 
+Windows 脚本会配置独立安装的 Kimi Code，并在检测到 Kimi Desktop 时同步配置其内置 Kimi Code CLI。
+
 macOS：
 
 ```bash

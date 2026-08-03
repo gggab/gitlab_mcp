@@ -252,6 +252,8 @@ location ~ ^/(join|join-cursor|join-kimi)\.(ps1|sh)$ {
 | Claude Code | `claude mcp add --transport http --scope user gitlab_deployment https://mcp.example.com/mcp/gitlab-deployment` | 启动 `claude` 后输入 `/mcp` |
 | Kimi Code | `join-kimi.ps1` 或 `join-kimi.sh` | 启动 `kimi` 后输入 `/mcp-config login gitlab_deployment` |
 
+Windows 的 `join-kimi.ps1` 会配置独立安装的 Kimi Code，并在检测到 Kimi Desktop 时同步配置其内置 Kimi Code CLI。
+
 用户完成授权后，OAuth access token 由客户端随请求携带。服务端只在内存中保留带过期时间的 Token 哈希；刷新令牌由客户端经 broker 转发到 GitLab，不会写入 `GitLabOAuthStorePath`。服务重启后，客户端会刷新或重新授权。
 
 ## 运维与故障排查

@@ -7,6 +7,7 @@ $serverName = "gitlab_deployment"
 $legacyServerName = "standard_smart_office_gitlab"
 $tokenEnv = "GITLAB_MCP_ACCESS_TOKEN"
 $exampleUrl = "http://mcp.internal.company.com" + "/mcp/gitlab-deployment"
+$kimiDesktopHome = "kimi-desktop\daimon-share\daimon\runtime\kimi-code\home"
 
 function Update-JsonMcpConfig([string]$Path, [object]$Entry) {
     $directory = Split-Path $Path -Parent
@@ -26,6 +27,14 @@ function Update-JsonMcpConfig([string]$Path, [object]$Entry) {
     foreach ($name in @($serverName, $legacyServerName)) { if ($servers.PSObject.Properties[$name]) { $servers.PSObject.Properties.Remove($name) } }
     $servers | Add-Member NoteProperty $serverName $Entry
     [IO.File]::WriteAllText($Path, (($config | ConvertTo-Json -Depth 10) + "`r`n"), [Text.UTF8Encoding]::new($false))
+}
+
+function Update-InstalledKimiMcpConfigs([string]$UserProfile, [string]$ApplicationData, [object]$Entry) {
+    Update-JsonMcpConfig (Join-Path $UserProfile ".kimi-code\mcp.json") $Entry
+    $desktopHome = Join-Path $ApplicationData $kimiDesktopHome
+    if (Test-Path -LiteralPath $desktopHome) {
+        Update-JsonMcpConfig (Join-Path $desktopHome "mcp.json") $Entry
+    }
 }
 
 if ($MyInvocation.InvocationName -eq ".") { return }
@@ -59,7 +68,7 @@ enabled = true
 [IO.File]::WriteAllText($codexPath, $(if ($existing) { "$existing`r`n`r`n$block`r`n" } else { "$block`r`n" }), [Text.UTF8Encoding]::new($false))
 
 Update-JsonMcpConfig (Join-Path $homeDirectory ".cursor\mcp.json") ([pscustomobject]@{ url = $McpUrl; headers = [pscustomobject]@{ Authorization = "Bearer `${env:GITLAB_MCP_ACCESS_TOKEN}" } })
-Update-JsonMcpConfig (Join-Path $homeDirectory ".kimi-code\mcp.json") ([pscustomobject]@{ url = $McpUrl; bearerTokenEnvVar = $tokenEnv })
+Update-InstalledKimiMcpConfigs $homeDirectory ([Environment]::GetFolderPath("ApplicationData")) ([pscustomobject]@{ url = $McpUrl; bearerTokenEnvVar = $tokenEnv })
 if (Get-Command claude -ErrorAction SilentlyContinue) {
     $claudeHeader = 'Authorization: Bearer ${GITLAB_MCP_ACCESS_TOKEN}'
     & claude mcp add --transport http --scope user $serverName $McpUrl --header $claudeHeader

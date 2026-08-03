@@ -9,6 +9,7 @@ Set-StrictMode -Version Latest
 $script:ServerName = "gitlab_deployment"
 $script:LegacyServerName = "standard_smart_office_gitlab"
 $script:ExampleMcpUrl = "https://mcp.internal.company.com/mcp/gitlab-deployment"
+$script:KimiDesktopHome = "kimi-desktop\daimon-share\daimon\runtime\kimi-code\home"
 
 function Assert-McpUrl {
     [CmdletBinding()]
@@ -90,14 +91,27 @@ function Set-KimiMcpConfig {
     Write-Output "Configured Kimi Code MCP in $configPath"
 }
 
-function Invoke-Onboarding {
+function Set-InstalledKimiMcpConfigs {
     [CmdletBinding()]
     param(
-        [string]$McpUrl = $script:ExampleMcpUrl,
-        [string]$ConfigDirectory = (Join-Path ([Environment]::GetFolderPath("UserProfile")) ".kimi-code")
+        [Parameter(Mandatory = $true)]
+        [string]$McpUrl,
+        [string]$UserProfile = [Environment]::GetFolderPath("UserProfile"),
+        [string]$ApplicationData = [Environment]::GetFolderPath("ApplicationData")
     )
 
-    Set-KimiMcpConfig -McpUrl $McpUrl -ConfigDirectory $ConfigDirectory
+    Set-KimiMcpConfig -McpUrl $McpUrl -ConfigDirectory (Join-Path $UserProfile ".kimi-code")
+    $desktopHome = Join-Path $ApplicationData $script:KimiDesktopHome
+    if (Test-Path -LiteralPath $desktopHome) {
+        Set-KimiMcpConfig -McpUrl $McpUrl -ConfigDirectory $desktopHome
+    }
+}
+
+function Invoke-Onboarding {
+    [CmdletBinding()]
+    param([string]$McpUrl = $script:ExampleMcpUrl)
+
+    Set-InstalledKimiMcpConfigs -McpUrl $McpUrl
     Write-Output "Onboarding complete. Open Kimi Code, then run '/mcp-config login gitlab_deployment' to authorize GitLab in the browser."
 }
 
