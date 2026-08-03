@@ -7,6 +7,7 @@ fail() { printf 'test failed: %s\n' "$1" >&2; exit 1; }
 grep -q 'read -r -s' "$script" || fail "token input is not hidden"
 grep -q 'security add-generic-password' "$script" || fail "Keychain storage is missing"
 grep -q 'security find-generic-password' "$script" || fail "Keychain retrieval is missing"
+grep -q 'export GITLAB_MCP_ACCESS_TOKEN="$token"' "$script" || fail "Claude Code cannot validate the environment-backed header"
 grep -q 'launchctl setenv GITLAB_MCP_ACCESS_TOKEN' "$script" || fail "LaunchAgent environment setup is missing"
 grep -q -- '--remove' "$script" || fail "removal path is missing"
 grep -q 'bearer_token_env_var' "$script" || fail "Codex bearer environment configuration is missing"

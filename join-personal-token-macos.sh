@@ -43,6 +43,7 @@ read -r -s -p 'GitLab Personal Access Token: ' token
 printf '\n'
 if [ -z "$token" ]; then printf 'A GitLab Personal Access Token is required.\n' >&2; exit 1; fi
 /usr/bin/security add-generic-password -U -a "$(/usr/bin/id -un)" -s "$SERVICE_NAME" -w "$token"
+export GITLAB_MCP_ACCESS_TOKEN="$token"
 unset token
 
 /usr/bin/install -d -m 700 "$SUPPORT_DIR" "$HOME/Library/LaunchAgents"

@@ -40,6 +40,7 @@ try { $token = [Runtime.InteropServices.Marshal]::PtrToStringBSTR($pointer) }
 finally { [Runtime.InteropServices.Marshal]::ZeroFreeBSTR($pointer) }
 if (-not $token) { throw "A GitLab Personal Access Token is required." }
 [Environment]::SetEnvironmentVariable($tokenEnv, $token, "User")
+[Environment]::SetEnvironmentVariable($tokenEnv, $token, "Process")
 $token = $null
 
 $homeDirectory = [Environment]::GetFolderPath("UserProfile")
@@ -63,6 +64,7 @@ Update-JsonMcpConfig (Join-Path $homeDirectory ".kimi-code\mcp.json") ([pscustom
 if (Get-Command claude -ErrorAction SilentlyContinue) {
     $claudeJson = '{"type":"http","url":"' + $McpUrl + '","headers":{"Authorization":"Bearer ${GITLAB_MCP_ACCESS_TOKEN}"}}'
     & claude mcp add-json --scope user $serverName $claudeJson
+    if ($LASTEXITCODE -ne 0) { throw "Claude Code MCP configuration failed with exit code $LASTEXITCODE" }
 }
 else { Write-Warning "Claude Code is not installed; run this script again after installing it." }
 Write-Output "Configured personal-token MCP for Codex, Cursor, Kimi Code, and installed Claude Code. Restart each client."
