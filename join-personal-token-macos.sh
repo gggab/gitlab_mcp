@@ -112,7 +112,7 @@ EOF
 set_json_configs() {
     local temporary
     /usr/bin/install -d -m 700 "$HOME/.cursor" "$HOME/.kimi-code"
-    temporary="$(/usr/bin/mktemp "${TMPDIR:-/tmp}/gitlab-mcp-personal-token.XXXXXX.js")"
+    temporary="$(/usr/bin/mktemp "${TMPDIR:-/tmp}/gitlab-mcp-personal-token.XXXXXX")"
     cat > "$temporary" <<'JXA'
 ObjC.import('Foundation');
 const args = $.NSProcessInfo.processInfo.arguments;

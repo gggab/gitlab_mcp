@@ -26,7 +26,7 @@ set_kimi_mcp_config() {
     local config_dir="${JOIN_KIMI_CONFIG_DIR:-$HOME/.kimi-code}"
     local config_path="$config_dir/mcp.json"
     local script_path
-    script_path="$(mktemp "${TMPDIR:-/tmp}/gitlab-mcp-kimi.XXXXXX.js")" || return 1
+    script_path="$(mktemp "${TMPDIR:-/tmp}/gitlab-mcp-kimi.XXXXXX")" || return 1
     mkdir -p "$config_dir" || { rm -f "$script_path"; return 1; }
 
     cat > "$script_path" <<'JXA'

@@ -40,7 +40,7 @@ set_cursor_mcp_config() {
     local config_dir="${JOIN_CURSOR_CONFIG_DIR:-$HOME/.cursor}"
     local config_path="$config_dir/mcp.json"
     local script_path
-    script_path="$(mktemp "${TMPDIR:-/tmp}/gitlab-mcp-cursor.XXXXXX.js")" || return 1
+    script_path="$(mktemp "${TMPDIR:-/tmp}/gitlab-mcp-cursor.XXXXXX")" || return 1
 
     mkdir -p "$config_dir" || {
         rm -f "$script_path"

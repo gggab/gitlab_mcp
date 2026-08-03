@@ -14,6 +14,7 @@ GitLab Deployment MCP is a Streamable HTTP service for Codex, Cursor, Claude Cod
 - Windows personal-token onboarding treats missing, empty, or whitespace-only Cursor/Kimi MCP files as new JSON objects, while still rejecting malformed or non-object JSON.
 - Windows Kimi onboarding writes `~/.kimi-code/mcp.json` and, when Kimi Desktop is installed, `%APPDATA%\kimi-desktop\daimon-share\daimon\runtime\kimi-code\home\mcp.json` for its bundled Kimi Code CLI.
 - macOS personal-token onboarding creates Cursor and Kimi configuration directories with `/usr/bin/install`; do not pass JavaScript `null` as `NSFileManager` directory attributes because JXA bridges it to `NSNull`.
+- macOS BSD `mktemp` templates must end in `XXXXXX`; JXA temporary script names cannot append a `.js` suffix after the placeholder.
 - Claude Code personal-token onboarding uses `claude mcp add --transport http ... --header` with a literal environment-variable reference; `add-json` rejects this HTTP configuration. Native command failures must stop the script.
 - `src/oauth.mjs` is the authorization broker: DCR and authorization-code PKCE downstream; one pre-registered GitLab OAuth App upstream with callback `<publicUrl>/oauth/callback`.
 - Unauthenticated `/mcp/gitlab-deployment` responses advertise protected-resource metadata through `WWW-Authenticate`; clients use their native OAuth login flow for GitLab authorization.
