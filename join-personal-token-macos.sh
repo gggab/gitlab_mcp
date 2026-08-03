@@ -39,7 +39,10 @@ esac
 case "$MCP_URL" in *[[:space:]]* | *\"*) printf 'MCP URL must not contain whitespace or quotes.\n' >&2; exit 1 ;; esac
 if [ "$MCP_URL" = "$EXAMPLE_MCP_URL" ]; then printf 'The deployer must replace the example MCP URL before hosting this script.\n' >&2; exit 1; fi
 
-read -r -s -p 'GitLab Personal Access Token: ' token
+if ! read -r -s -p 'GitLab Personal Access Token: ' token </dev/tty; then
+    printf '\nA terminal is required to enter the GitLab Personal Access Token.\n' >&2
+    exit 1
+fi
 printf '\n'
 if [ -z "$token" ]; then printf 'A GitLab Personal Access Token is required.\n' >&2; exit 1; fi
 /usr/bin/security add-generic-password -U -a "$(/usr/bin/id -un)" -s "$SERVICE_NAME" -w "$token"

@@ -4,7 +4,7 @@ set -euo pipefail
 script="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)/join-personal-token-macos.sh"
 fail() { printf 'test failed: %s\n' "$1" >&2; exit 1; }
 
-grep -q 'read -r -s' "$script" || fail "token input is not hidden"
+grep -q 'read -r -s.*</dev/tty' "$script" || fail "token input is not hidden or does not read from the terminal"
 grep -q 'security add-generic-password' "$script" || fail "Keychain storage is missing"
 grep -q 'security find-generic-password' "$script" || fail "Keychain retrieval is missing"
 grep -q 'launchctl setenv GITLAB_MCP_ACCESS_TOKEN' "$script" || fail "LaunchAgent environment setup is missing"
