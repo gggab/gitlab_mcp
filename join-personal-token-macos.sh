@@ -111,6 +111,7 @@ EOF
 
 set_json_configs() {
     local temporary
+    /usr/bin/install -d -m 700 "$HOME/.cursor" "$HOME/.kimi-code"
     temporary="$(/usr/bin/mktemp "${TMPDIR:-/tmp}/gitlab-mcp-personal-token.XXXXXX.js")"
     cat > "$temporary" <<'JXA'
 ObjC.import('Foundation');
@@ -122,8 +123,6 @@ const serverName = ObjC.unwrap(args.objectAtIndex(7));
 const legacyServerName = ObjC.unwrap(args.objectAtIndex(8));
 const fileManager = $.NSFileManager.defaultManager;
 function update(path, entry) {
-  const parent = ObjC.unwrap($(path).stringByDeletingLastPathComponent);
-  fileManager.createDirectoryAtPathWithIntermediateDirectoriesAttributesError(parent, true, null, null);
   let config = {};
   if (fileManager.fileExistsAtPath(path)) {
     const data = $.NSData.dataWithContentsOfFile(path);

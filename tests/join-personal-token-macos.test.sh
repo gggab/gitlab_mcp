@@ -12,6 +12,8 @@ grep -q -- '--remove' "$script" || fail "removal path is missing"
 grep -q 'bearer_token_env_var' "$script" || fail "Codex bearer environment configuration is missing"
 grep -q "Bearer \${env:GITLAB_MCP_ACCESS_TOKEN}" "$script" || fail "Cursor environment header is missing"
 grep -q 'bearerTokenEnvVar' "$script" || fail "Kimi Code bearer environment configuration is missing"
+grep -q '/usr/bin/install -d -m 700 "$HOME/.cursor" "$HOME/.kimi-code"' "$script" || fail "MCP client configuration directories are not created safely"
+if grep -q 'createDirectoryAtPathWithIntermediateDirectoriesAttributesError' "$script"; then fail "JXA passes null directory attributes as NSNull"; fi
 grep -q 'claude mcp add --transport http --scope user' "$script" || fail "Claude Code HTTP configuration is missing"
 placeholder='http://mcp.internal.company.com/mcp/gitlab-deployment'
 [ "$(grep -Fo "$placeholder" "$script" | wc -l | tr -d ' ')" = "1" ] || fail "hosted-script URL placeholder must occur exactly once"
