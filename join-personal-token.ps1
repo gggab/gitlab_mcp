@@ -6,7 +6,7 @@ Set-StrictMode -Version Latest
 $serverName = "gitlab_deployment"
 $legacyServerName = "standard_smart_office_gitlab"
 $tokenEnv = "GITLAB_MCP_ACCESS_TOKEN"
-$exampleUrl = "http://mcp.internal.company.com/mcp/gitlab-deployment"
+$exampleUrl = "http://mcp.internal.company.com" + "/mcp/gitlab-deployment"
 
 if ($McpUrl -eq $exampleUrl -or $McpUrl -match '[\s"]' -or $McpUrl -notmatch '^https?://') {
     throw "The deployer must replace the example MCP URL with an absolute internal HTTP or HTTPS URL before hosting this script."

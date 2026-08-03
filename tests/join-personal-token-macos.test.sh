@@ -13,4 +13,8 @@ grep -q 'bearer_token_env_var' "$script" || fail "Codex bearer environment confi
 grep -q "Bearer \${env:GITLAB_MCP_ACCESS_TOKEN}" "$script" || fail "Cursor environment header is missing"
 grep -q 'bearerTokenEnvVar' "$script" || fail "Kimi Code bearer environment configuration is missing"
 grep -q 'claude mcp add-json --scope user' "$script" || fail "Claude Code configuration is missing"
+placeholder='http://mcp.internal.company.com/mcp/gitlab-deployment'
+[ "$(grep -Fo "$placeholder" "$script" | wc -l | tr -d ' ')" = "1" ] || fail "hosted-script URL placeholder must occur exactly once"
+rendered="$(sed "s|$placeholder|http://10.20.30.40/mcp/gitlab-deployment|" "$script")"
+printf '%s\n' "$rendered" | grep -q 'EXAMPLE_MCP_URL="http://mcp.internal.company.com""/mcp/gitlab-deployment"' || fail "rendered script overwrote its example URL guard"
 printf 'ok: macOS personal-token onboarding verified\n'

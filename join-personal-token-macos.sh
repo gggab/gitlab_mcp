@@ -5,7 +5,8 @@ set -euo pipefail
 SERVER_NAME="gitlab_deployment"
 LEGACY_SERVER_NAME="standard_smart_office_gitlab"
 TOKEN_ENV="GITLAB_MCP_ACCESS_TOKEN"
-EXAMPLE_MCP_URL="http://mcp.internal.company.com/mcp/gitlab-deployment"
+DEFAULT_MCP_URL="http://mcp.internal.company.com/mcp/gitlab-deployment"
+EXAMPLE_MCP_URL="http://mcp.internal.company.com""/mcp/gitlab-deployment"
 SERVICE_NAME="GitLabMCP.AccessToken"
 LABEL="com.gitlab-mcp.personal-token"
 SUPPORT_DIR="$HOME/Library/Application Support/GitLabMCP"
@@ -26,7 +27,7 @@ remove() {
 }
 
 if [ "${1:-}" = "--remove" ] && [ "$#" -eq 1 ]; then remove; exit 0; fi
-if [ "$#" -eq 0 ]; then MCP_URL="$EXAMPLE_MCP_URL"; elif [ "${1:-}" = "--url" ] && [ -n "${2:-}" ] && [ "$#" -eq 2 ]; then MCP_URL="$2"; else usage; fi
+if [ "$#" -eq 0 ]; then MCP_URL="$DEFAULT_MCP_URL"; elif [ "${1:-}" = "--url" ] && [ -n "${2:-}" ] && [ "$#" -eq 2 ]; then MCP_URL="$2"; else usage; fi
 if [ "$(/usr/bin/uname)" != "Darwin" ]; then
     printf 'This script only supports macOS.\n' >&2
     exit 1
